@@ -1,0 +1,18 @@
+name: fp-sam3
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.26,<2
+  - pip=24.2
+  - pillow
+  - opencv=4.10
+  - setuptools<81
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - torch==2.7.1+cu126
+      - torchvision==0.22.1+cu126
+      - einops
+      - pycocotools
+      - psutil
+      - -e ../sam3

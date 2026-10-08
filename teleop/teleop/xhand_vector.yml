@@ -1,0 +1,51 @@
+left:
+  type: vector
+  urdf_path: xhand/xhand_left_glb.urdf
+  wrist_link_name: "left_hand_link"
+
+  # Target refers to the retargeting targetxh, which is the robot hand
+#  ignore_mimic_joint: true
+  target_joint_names: null
+
+
+  target_origin_link_names: [ "left_hand_link", "left_hand_link", "left_hand_link", "left_hand_link", "left_hand_link" ]
+  target_task_link_names: [ "left_hand_thumb_rota_tip", "left_hand_index_rota_tip", "left_hand_mid_tip", "left_hand_ring_tip", "left_hand_pinky_tip"  ]
+
+#  target_origin_link_names: [ "left_hand_link", "left_hand_link", "left_hand_link", "left_hand_link", "left_hand_link","left_hand_index_rota_tip", "left_hand_mid_tip", "left_hand_ring_tip", "left_hand_pinky_tip", "left_hand_mid_tip", "left_hand_ring_tip", "left_hand_pinky_tip","left_hand_ring_tip", "left_hand_pinky_tip","left_hand_pinky_tip",]
+#  target_task_link_names: [ "left_hand_thumb_rota_tip", "left_hand_index_rota_tip", "left_hand_mid_tip", "left_hand_ring_tip", "left_hand_pinky_tip","left_hand_thumb_rota_tip","left_hand_thumb_rota_tip","left_hand_thumb_rota_tip","left_hand_thumb_rota_tip", "left_hand_index_rota_tip","left_hand_index_rota_tip","left_hand_index_rota_tip","left_hand_mid_tip","left_hand_mid_tip","left_hand_pinky_tip"]
+  scaling_factor: 1.1
+
+  # Source refers to the retargeting input, which usually corresponds to the human hand
+  # The joint indices of human hand joint which corresponds to each link in the target_link_names
+  target_link_human_indices: [ [ 0, 0, 0, 0, 0 ], [ 4, 9, 14, 19, 24 ] ]
+#  target_link_human_indices: [ [9, 14, 19, 24, 14, 19, 24, 19, 24, 24,  0, 0, 0, 0, 0 ], [ 4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24, ] ]
+
+  # A smaller alpha means stronger filtering, i.e. more smooth but also larger latency
+  low_pass_alpha: 0.5
+
+right:
+  type: vector
+  urdf_path: xhand/xhand_right_glb.urdf
+  wrist_link_name: "right_hand_link"
+
+  # Target refers to the retargeting target, which is the robot hand
+
+  target_origin_link_names: [ "right_hand_link", "right_hand_link", "right_hand_link", "right_hand_link", "right_hand_link" ,]
+  target_task_link_names: ["right_hand_thumb_rota_tip", "right_hand_index_rota_tip", "right_hand_mid_tip", "right_hand_ring_tip", "right_hand_pinky_tip",]
+  scaling_factor: 1.1
+
+#  target_origin_link_names: [ "right_hand_link", "right_hand_link", "right_hand_link", "right_hand_link", "right_hand_link","right_hand_index_rota_tip", "right_hand_mid_tip", "right_hand_ring_tip", "right_hand_pinky_tip", "right_hand_mid_tip", "right_hand_ring_tip", "right_hand_pinky_tip","right_hand_ring_tip", "right_hand_pinky_tip","right_hand_pinky_tip",]
+#  target_task_link_names: [ "right_hand_thumb_rota_tip", "right_hand_index_rota_tip", "right_hand_mid_tip", "right_hand_ring_tip", "right_hand_pinky_tip","right_hand_thumb_rota_tip","right_hand_thumb_rota_tip","right_hand_thumb_rota_tip","right_hand_thumb_rota_tip", "right_hand_index_rota_tip","right_hand_index_rota_tip","right_hand_index_rota_tip","right_hand_mid_tip","right_hand_mid_tip","right_hand_pinky_tip"]
+
+  # Source refers to the retargeting input, which usually corresponds to the human hand
+  # The joint indices of human hand joint which corresponds to each link in the target_link_names
+  target_link_human_indices: [ [ 0, 0, 0, 0, 0 ], [ 4, 9, 14, 19, 24] ]
+#  target_link_human_indices: [ [9, 14, 19, 24, 14, 19, 24, 19, 24, 24,  0, 0, 0, 0, 0 ], [ 4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24, ] ]
+
+  target_joint_names: null
+
+#  ignore_mimic_joint: true
+  # A smaller alpha means stronger filtering, i.e. more smooth but also larger latency
+  low_pass_alpha: 0.5
+
+

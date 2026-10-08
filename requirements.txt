@@ -1,0 +1,19 @@
+# Python 3.10: teleoperation, conversion, ACTBH training and deployment.
+# Kinect segmentation runs in the separate requirements-kinect.txt environment.
+# Install compatible conda-forge pinocchio + casadi first.
+-e ./third_party/lerobot
+numpy>=2,<2.3
+scipy
+h5py
+tqdm
+pyzmq
+opencv-python-headless>=4.12,<4.13
+vuer
+aiortc
+aiohttp-cors
+params-proto
+dex-retargeting==0.5.0
+wujihandpy==1.8.0
+robotic-arm==1.1.6
+wuji-sdk==2026.8.31
+openvr==2.5.102

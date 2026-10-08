@@ -1,0 +1,33 @@
+{
+    "palm_link": [-0.01, 0, 0.005],
+
+    "finger1_link1": [0, 0, 0],
+    "finger1_link2": [0, 0, 0],
+    "finger1_link3": [0, 0, 0],
+    "finger1_link4": [0, 0, 0],
+    "finger1_tip_link": [0, 0, -0.004],
+
+    "finger2_link1": [0, 0, 0],
+    "finger2_link2": [0, 0, 0.025],
+    "finger2_link3": [0, 0, 0.002],
+    "finger2_link4": [0, 0, 0],
+    "finger2_tip_link": [0, 0, -0.0045],
+
+    "finger3_link1": [0, 0, 0],
+    "finger3_link2": [0, 0, 0.025],
+    "finger3_link3": [0, 0, 0.002],
+    "finger3_link4": [0, 0, 0],
+    "finger3_tip_link": [0, 0, -0.0045],
+
+    "finger4_link1": [0, 0, 0],
+    "finger4_link2": [0, 0, 0.025],
+    "finger4_link3": [0, 0, 0.002],
+    "finger4_link4": [0, 0, 0],
+    "finger4_tip_link": [0, 0, -0.0045],
+
+    "finger5_link1": [0, 0, 0],
+    "finger5_link2": [0, 0, 0.025],
+    "finger5_link3": [0, 0, 0.002],
+    "finger5_link4": [0, 0, 0],
+    "finger5_tip_link": [0, 0, -0.0045]
+}

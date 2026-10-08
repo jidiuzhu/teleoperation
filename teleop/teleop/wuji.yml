@@ -1,0 +1,56 @@
+left:
+  type: DexPilot
+  urdf_path: wujihand_urdf/urdf/left_retarget.urdf
+  wrist_link_name: palm_link
+  finger_tip_link_names: [finger1_tip_link, finger2_tip_link, finger3_tip_link, finger4_tip_link, finger5_tip_link]
+  scaling_factor: 1.0
+  target_link_human_indices: [[9, 14, 19, 24, 14, 19, 24, 19, 24, 24, 0, 0, 0, 0, 0], [4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24]]
+  low_pass_alpha: 0.5
+
+right:
+  type: DexPilot
+  urdf_path: wujihand_urdf/urdf/right_retarget.urdf
+  wrist_link_name: palm_link
+  finger_tip_link_names: [finger1_tip_link, finger2_tip_link, finger3_tip_link, finger4_tip_link, finger5_tip_link]
+  scaling_factor: 1.0
+  target_link_human_indices: [[9, 14, 19, 24, 14, 19, 24, 19, 24, 24, 0, 0, 0, 0, 0], [4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24]]
+  low_pass_alpha: 0.5
+
+  project_dist: 0.02
+  escape_dist: 0.03
+
+
+# Per-operator Wuji morphology correction. Increasing one value lengthens that
+# finger's MCP-to-tip target and therefore reduces inward curling. Keep the
+# global DexPilot scaling_factor above at 1.0 to avoid double scaling.
+wuji_morphology:
+  fingertip_scale:
+#    thumb: 1.00
+#    index: 1.08
+#    middle: 0.99
+#    ring: 1.03
+#    little: 1.188
+    thumb: 1.00
+    index: 1.00
+    middle: 1.00
+    ring: 1.00
+    little: 1.00
+
+# Add one internal landmark per finger to constrain bending direction. Vector
+# order is palm->fingerN_link3 followed by fingerN_link3->fingerN_tip_link.
+# Each pair uses human landmarks 2/4, 7/9, 12/14, 17/19 and 22/24.
+wuji_internal_constraints:
+  enabled: false
+  internal_link_names: [finger1_link4, finger2_link4, finger3_link4, finger4_link4, finger5_link4]
+  wrist_to_joint_weight:
+    thumb: 1.5
+    index: 0.5
+    middle: 0.5
+    ring: 0.5
+    little: 0.3
+  joint_to_tip_weight:
+    thumb: 1.7
+    index: 0.5
+    middle: 0.5
+    ring: 0.5
+    little: 0.3

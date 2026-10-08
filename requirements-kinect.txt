@@ -1,0 +1,12 @@
+# Python 3.11: Azure Kinect + SAM3 segmentation publisher.
+# Azure Kinect Sensor SDK and depth engine are external native dependencies.
+-e ./foundationpose-kinect-0.1.0
+-e ./foundationpose-kinect-0.1.0/sam3
+numpy>=1.26,<2
+opencv-python>=4.10,<4.12
+pykinect-azure==0.0.4
+pyzmq
+scipy
+hydra-core==1.3.2
+omegaconf
+easydict==1.13

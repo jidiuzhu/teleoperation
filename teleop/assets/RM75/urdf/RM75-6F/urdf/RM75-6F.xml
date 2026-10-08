@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="RM75-6F">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.00049987 5.2709E-05 0.060019" rpy="0 0 0" />
+      <mass value="1.862" />
+      <inertia ixx="0.0017232" ixy="-3.1058E-06" ixz="-3.7924E-05" iyy="0.0017051" iyz="1.3691E-06" izz="0.00090158" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/base_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="link_1">
+    <inertial>
+      <origin xyz="0.0011124 4.2922E-04 0.10335" rpy="0 0 0" />
+      <mass value="1.5179" />
+      <inertia ixx="0.0029787" ixy="-3.5572E-06" ixz="-0.00037903" iyy="0.003053" iyz="-0" izz="0.0014729" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.218" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.356" upper="2.356" effort="20" velocity="3.14" />
+  </joint>
+  <link name="link_2">
+    <inertial>
+      <origin xyz="-0.0054022 0.0002734 0.23384" rpy="0 0 0" />
+      <mass value="1.2162" />
+      <inertia ixx="0.0026719" ixy="-1.3125E-06" ixz="6.4445E-05" iyy="0.0026503" iyz="-3.6801E-07" izz="0.0002223" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="1 0 0" />
+    <limit lower="-2.618" upper="1.571" effort="20" velocity="3.14" />
+  </joint>
+  <link name="link_3">
+    <inertial>
+      <origin xyz="0.00050784 -2.4082E-05 0.31302" rpy="0 0 0" />
+      <mass value="0.6719" />
+      <inertia ixx="0.0015674" ixy="-2.622E-07" ixz="4.0191E-05" iyy="0.0015775" iyz="-2.464E-08" izz="0.000034582" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.745" upper="1.745" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_4">
+    <inertial>
+      <origin xyz="0.010359 5.3636E-05 0.025072" rpy="0 0 0" />
+      <mass value="0.2919" />
+      <inertia ixx="0.000090963" ixy="-9.1127E-07" ixz="-1.98E-06" iyy="0.000083371" iyz="3.3633E-08" izz="0.00011145" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_4.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0 0 0.62" rpy="0 0 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.967" upper="2.967" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_5">
+    <inertial>
+      <origin xyz="-0.010922 -3.0328E-05 0.016917" rpy="0 0 0" />
+      <mass value="0.2778" />
+      <inertia ixx="0.000052628" ixy="-2.8016E-07" ixz="3.7401E-07" iyy="0.000052578" iyz="-0" izz="0.000080197" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_5.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="0 0 0.03" rpy="1.5708 0 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="1 0 0" />
+    <limit lower="-2.094" upper="2.094" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_6">
+    <inertial>
+      <origin xyz="0.0084041 7.9762E-05 0.00996" rpy="0 0 0" />
+      <mass value="0.144" />
+      <inertia ixx="0.000019046" ixy="7.431E-08" ixz="-0" iyy="0.000020657" iyz="-2.3269E-08" izz="0.000016048" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_6.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0 0 0.1725" rpy="1.5708 0 0" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="1 0 0" />
+    <limit lower="-2.967" upper="2.967" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_7">
+    <inertial>
+      <origin xyz="0.001094 -0.000077 -0.010119" rpy="0 0 0" />
+      <mass value="0.144" />
+      <inertia ixx="0.000044123" ixy="-0.000000064" ixz="0.0000003" iyy="0.000035078" iyz="-0.000000029" izz="0.000065445" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_7.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="/home/user/WorkSpace/factory_dexmanip/assets/RM75/urdf/RM75-6F/meshes/link_7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_7" type="revolute">
+    <origin xyz="0 -0.1725 0" rpy="1.5708 0 0" />
+    <parent link="link_6" />
+    <child link="link_7" />
+    <axis xyz="0 0 1" />
+    <limit lower="-6.28" upper="6.28" effort="10" velocity="3.14" />
+  </joint>
+</robot>

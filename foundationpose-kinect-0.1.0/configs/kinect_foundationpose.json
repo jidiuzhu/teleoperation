@@ -1,0 +1,120 @@
+{
+  "selected_object": "apple_10cm",
+  "objects": {
+    "apple_10cm": {
+      "mesh": "apple_assets/apple_10cm_hull.obj",
+      "prompts": [
+        "red apple",
+        "red fruit",
+        "red object"
+      ]
+    },
+    "apple_7cm": {
+      "mesh": "apple_assets/apple_7cm_hull.obj",
+      "prompts": [
+        "red apple",
+        "red fruit",
+        "red object"
+      ]
+    },
+    "my_object": {
+      "mesh": "model_free_objects/my_object/run_20260818_102926/reconstruction/model.obj",
+      "prompts": [
+        "red apple",
+        "red fruit",
+        "red object"
+      ],
+      "source": "model-free-rgbd"
+    },
+    "special_part": {
+      "mesh": "model_free_objects/special_part/run_20260818_104751/reconstruction/model.obj",
+      "prompts": [
+        "special_part"
+      ],
+      "source": "model-free-rgbd"
+    },
+    "water-nfsq": {
+      "mesh": "3dmodel/water-nfsq_m.obj",
+      "prompts": [
+        "water bottle",
+        "plastic bottle",
+        "bottle"
+      ]
+    },
+    "coke": {
+      "mesh": "3dmodel/coke_m.obj",
+      "prompts": [
+        "soda can",
+        "coke can",
+        "aluminum can"
+      ]
+    },
+    "ball": {
+      "mesh": "3dmodel/ball_m.obj",
+      "prompts": [
+        "ball",
+        "sphere",
+        "round object"
+      ]
+    }
+
+  },
+  "segmentation": {
+    "mode": "text",
+    "threshold": 0.5,
+    "checkpoint": "sam3/weights/sam3.pt",
+    "bpe": "sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz"
+  },
+  "hybrid": {
+    "enabled": false,
+    "sam_hz": 5.0,
+    "window_seconds": 2.0,
+    "reregister_center_error_px": 40.0,
+    "reregister_cooldown_seconds": 2.0,
+    "min_mask_pixels": 500,
+    "max_mask_area_change_ratio": 2.5
+  },
+  "camera": {
+    "warmup_frames": 10
+  },
+  "model_free": {
+    "output_root": "model_free_objects",
+    "capture_frames": 240,
+    "capture_every_frames": 3,
+    "mask_area_change_ratio": 2.5,
+    "max_surface_depth_span_m": 0.2,
+    "voxel_m": 0.003,
+    "icp_fitness_min": 0.3,
+    "icp_rmse_max_m": 0.015,
+    "poisson_depth": 8,
+    "max_triangles": 100000
+  },
+  "runtime": {
+    "port": 50051,
+    "max_frames": 0,
+    "headless": false,
+    "docker_image": "foundationpose-cpp:trt10-ubuntu22.04"
+  },
+  "visualization": {
+    "layout": "rgbd_cloud",
+    "preview_scale": 0.5,
+    "save_every_frames": 30
+  },
+  "pointcloud": {
+    "enabled": true,
+    "mode": "all",
+    "save_every_frames": 30,
+    "preview_every_frames": 2,
+    "stride": 3,
+    "min_depth_m": 0.15,
+    "max_depth_m": 2.0,
+    "max_points": 120000,
+    "mesh_points": 12000,
+    "reference_frames": 5,
+    "reference_voxel_m": 0.003,
+    "crop_margin_m": 0.005,
+    "mask_erosion_px": 2,
+    "view_yaw_deg": -25.0,
+    "view_pitch_deg": -20.0
+  }
+}

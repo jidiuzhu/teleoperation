@@ -1,0 +1,314 @@
+{
+    "codebase_version": "v3.0",
+    "robot_type": null,
+    "total_episodes": 1,
+    "total_frames": 548,
+    "total_tasks": 1,
+    "chunks_size": 1000,
+    "data_files_size_in_mb": 100,
+    "video_files_size_in_mb": 200,
+    "fps": 15,
+    "splits": {
+        "train": "0:1"
+    },
+    "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+    "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+    "features": {
+        "action": {
+            "dtype": "float32",
+            "shape": [
+                21
+            ],
+            "names": [
+                "ee_xyz_rot6d_and_hand_q"
+            ]
+        },
+        "action.arm_target_q": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": [
+                "arm_target_q"
+            ]
+        },
+        "action.hand_target_q": {
+            "dtype": "float32",
+            "shape": [
+                12
+            ],
+            "names": [
+                "hand_target_q"
+            ]
+        },
+        "action.ee_target_pose": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": [
+                "x",
+                "y",
+                "z",
+                "qx",
+                "qy",
+                "qz",
+                "qw"
+            ]
+        },
+        "action.ee_target_pose_9d": {
+            "dtype": "float32",
+            "shape": [
+                9
+            ],
+            "names": [
+                "xyz_rot6d"
+            ]
+        },
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [
+                21
+            ],
+            "names": [
+                "ee_xyz_rot6d_and_hand_q"
+            ]
+        },
+        "observation.qpos_raw": {
+            "dtype": "float32",
+            "shape": [
+                19
+            ],
+            "names": [
+                "raw_7arm_12hand"
+            ]
+        },
+        "observation.ee_pose": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": [
+                "x",
+                "y",
+                "z",
+                "qx",
+                "qy",
+                "qz",
+                "qw"
+            ]
+        },
+        "observation.ee_pose_9d": {
+            "dtype": "float32",
+            "shape": [
+                9
+            ],
+            "names": [
+                "xyz_rot6d"
+            ]
+        },
+        "observation.images.D405": {
+            "dtype": "video",
+            "shape": [
+                3,
+                240,
+                320
+            ],
+            "names": [
+                "channels",
+                "height",
+                "width"
+            ],
+            "info": {
+                "video.height": 240,
+                "video.width": 320,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 15,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.images.D435i": {
+            "dtype": "video",
+            "shape": [
+                3,
+                240,
+                320
+            ],
+            "names": [
+                "channels",
+                "height",
+                "width"
+            ],
+            "info": {
+                "video.height": 240,
+                "video.width": 320,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 15,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.depth.D405": {
+            "dtype": "int32",
+            "shape": [
+                240,
+                320
+            ],
+            "names": [
+                "height",
+                "width"
+            ]
+        },
+        "observation.depth.D435i": {
+            "dtype": "int32",
+            "shape": [
+                240,
+                320
+            ],
+            "names": [
+                "height",
+                "width"
+            ]
+        },
+        "observation.tactile.Thumb.raw": {
+            "dtype": "int64",
+            "shape": [
+                120,
+                3
+            ],
+            "names": [
+                "taxel",
+                "channel"
+            ]
+        },
+        "observation.tactile.Thumb.calc": {
+            "dtype": "int64",
+            "shape": [
+                3
+            ],
+            "names": [
+                "features"
+            ]
+        },
+        "observation.tactile.Index.raw": {
+            "dtype": "int64",
+            "shape": [
+                120,
+                3
+            ],
+            "names": [
+                "taxel",
+                "channel"
+            ]
+        },
+        "observation.tactile.Index.calc": {
+            "dtype": "int64",
+            "shape": [
+                3
+            ],
+            "names": [
+                "features"
+            ]
+        },
+        "observation.tactile.Middle.raw": {
+            "dtype": "int64",
+            "shape": [
+                120,
+                3
+            ],
+            "names": [
+                "taxel",
+                "channel"
+            ]
+        },
+        "observation.tactile.Middle.calc": {
+            "dtype": "int64",
+            "shape": [
+                3
+            ],
+            "names": [
+                "features"
+            ]
+        },
+        "observation.tactile.Ring.raw": {
+            "dtype": "int64",
+            "shape": [
+                120,
+                3
+            ],
+            "names": [
+                "taxel",
+                "channel"
+            ]
+        },
+        "observation.tactile.Ring.calc": {
+            "dtype": "int64",
+            "shape": [
+                3
+            ],
+            "names": [
+                "features"
+            ]
+        },
+        "observation.tactile.Little.raw": {
+            "dtype": "int64",
+            "shape": [
+                120,
+                3
+            ],
+            "names": [
+                "taxel",
+                "channel"
+            ]
+        },
+        "observation.tactile.Little.calc": {
+            "dtype": "int64",
+            "shape": [
+                3
+            ],
+            "names": [
+                "features"
+            ]
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    }
+}

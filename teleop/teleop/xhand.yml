@@ -1,0 +1,23 @@
+left:
+  type: DexPilot
+  urdf_path: xhand/xhand_left_glb.urdf
+  wrist_link_name: "left_hand_link"
+  finger_tip_link_names: [ "left_hand_thumb_rota_tip", "left_hand_index_rota_tip", "left_hand_mid_tip", "left_hand_ring_tip", "left_hand_pinky_tip" ]
+  scaling_factor: 1.15
+#  target_link_human_indices: [ [ 0, 0, 0, 0, 0 ], [ 4, 9, 14, 19, 24,] ]
+  target_link_human_indices: [ [9, 14, 19, 24, 14, 19, 24, 19, 24, 24,  0, 0, 0, 0, 0 ], [ 4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24, ] ]
+
+  low_pass_alpha: 0.5
+
+right:
+  type: DexPilot
+  urdf_path: xhand/xhand_right_glb.urdf
+  wrist_link_name: "right_hand_link"
+  finger_tip_link_names: [ "right_hand_thumb_rota_tip", "right_hand_index_rota_tip", "right_hand_mid_tip", "right_hand_ring_tip", "right_hand_pinky_tip" ]
+  scaling_factor: 1.15
+  target_link_human_indices: [ [9, 14, 19, 24, 14, 19, 24, 19, 24, 24,  0, 0, 0, 0, 0 ], [ 4, 4, 4, 4, 9, 9, 9, 14, 14, 19, 4, 9, 14, 19, 24, ] ]
+#  target_link_human_indices: [ [ 0, 0, 0, 0, 0 ], [ 4, 9, 14, 19, 24,] ]
+
+  low_pass_alpha: 0.5
+
+

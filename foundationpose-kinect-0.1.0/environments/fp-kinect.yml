@@ -1,0 +1,12 @@
+name: fp-kinect
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.26,<2
+  - opencv=4.10
+  - paramiko=3.5
+  - pip=24.2
+  - pip:
+      - pykinect-azure==0.0.4
+

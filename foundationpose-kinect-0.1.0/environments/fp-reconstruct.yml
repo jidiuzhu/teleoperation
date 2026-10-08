@@ -1,0 +1,8 @@
+name: fp-reconstruct
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.26,<2
+  - open3d=0.18
+  - opencv=4.10

@@ -1,0 +1,53 @@
+ARG BASE_IMAGE=nvcr.io/nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
+FROM ${BASE_IMAGE}
+
+ARG TENSORRT_VERSION=10.7.0
+ARG TENSORRT_PACKAGE_VERSION=10.7.0.23-1+cuda12.6
+ARG CVCUDA_VERSION=0.12.0-beta
+
+LABEL org.opencontainers.image.title="foundationpose-cpp-ubuntu22.04-trt10"
+LABEL com.foundationpose.tensorrt.version="${TENSORRT_VERSION}"
+ENV DEBIAN_FRONTEND=noninteractive \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    NVIDIA_VISIBLE_DEVICES=all
+
+RUN sed -i \
+      -e 's#http://archive.ubuntu.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+      -e 's#http://security.ubuntu.com/ubuntu#https://mirrors.ustc.edu.cn/ubuntu#g' \
+      /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ca-certificates cmake curl git gnupg software-properties-common \
+      libassimp-dev libeigen3-dev libgoogle-glog-dev libgtest-dev libopencv-dev wget
+
+RUN apt-get update && \
+    trt_major="$(echo "${TENSORRT_VERSION}" | cut -d. -f1)" && \
+    apt-get install -y --no-install-recommends \
+      "libnvinfer${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-plugin${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-headers-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-headers-plugin-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-plugin-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-lean${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-lean-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-dispatch${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-dispatch-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-vc-plugin${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-vc-plugin-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvonnxparsers${trt_major}=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvonnxparsers-dev=${TENSORRT_PACKAGE_VERSION}" \
+      "libnvinfer-samples=${TENSORRT_PACKAGE_VERSION}" && \
+    make -C /usr/src/tensorrt/samples -j"$(nproc)" && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN arch="$(dpkg --print-architecture)" && \
+    test "$arch" = amd64 && \
+    wget -q "https://github.com/CVCUDA/CV-CUDA/releases/download/v${CVCUDA_VERSION}/cvcuda-lib-0.12.0_beta-cuda12-x86_64-linux.deb" \
+      -O /tmp/cvcuda-lib.deb && \
+    wget -q "https://github.com/CVCUDA/CV-CUDA/releases/download/v${CVCUDA_VERSION}/cvcuda-dev-0.12.0_beta-cuda12-x86_64-linux.deb" \
+      -O /tmp/cvcuda-dev.deb && \
+    dpkg -i /tmp/cvcuda-lib.deb /tmp/cvcuda-dev.deb && \
+    rm /tmp/cvcuda-lib.deb /tmp/cvcuda-dev.deb
+
+WORKDIR /workspace
+CMD ["bash"]
