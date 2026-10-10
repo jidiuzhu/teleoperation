@@ -5,6 +5,7 @@ import math
 import socket
 import time
 import uuid
+import ipaddress
 
 
 def main():
@@ -16,6 +17,9 @@ def main():
     args = parser.parse_args()
     if not math.isfinite(args.hz) or not 1 <= args.hz <= 120:
         parser.error('--hz must be between 1 and 120')
+    ipaddress.IPv4Address(args.host)
+    if not 1 <= args.port <= 65535:
+        parser.error("Invalid UDP port")
     import openvr
     vr = openvr.init(openvr.VRApplication_Background)
     session = uuid.uuid4().hex
@@ -23,10 +27,25 @@ def main():
     last_print = 0.0
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setblocking(False)
+            echo = None
             print(f'Sending {args.serial} to {args.host}:{args.port}; Ctrl+C exits')
             while True:
                 start = time.monotonic()
-                packet = dict(version=1, session=session, seq=seq,
+                for _ in range(32):
+                    try:
+                        reply, peer = sock.recvfrom(2048)
+                    except BlockingIOError:
+                        break
+                    if peer != (args.host, args.port):
+                        continue
+                    try:
+                        probe = json.loads(reply)
+                        if probe.get('type') == 'tracker_probe' and isinstance(probe.get('nonce'), str):
+                            echo = probe['nonce']
+                    except (ValueError, AttributeError):
+                        pass
+                packet = dict(version=2, echo=echo, session=session, seq=seq,
                               serial=args.serial, frame='steamvr_standing',
                               connected=False, valid=False, tracking_result=None,
                               matrix34=None)

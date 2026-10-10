@@ -13,7 +13,7 @@ import time
 def validate(packet, serial):
     if not isinstance(packet, dict):
         raise ValueError('Expected object')
-    if packet.get('version') != 1 or packet.get('serial') != serial:
+    if packet.get('version') not in (1, 2) or packet.get('serial') != serial:
         raise ValueError('Wrong version or serial')
     if packet.get('frame') != 'steamvr_standing':
         raise ValueError('Wrong frame')

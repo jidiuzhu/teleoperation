@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Teleoperation Server for RM75 + Wuji Hand + RealSense
+Teleoperation Server for RM75 / MARVIN + Wuji Hand
 Responsibility:
 1. Hardware Interface (Arm, Hand, Camera).
 2. Kinematics Solver (IK/FK).
@@ -46,7 +46,6 @@ if str(TELEOP_ROOT) not in sys.path:
 
 # --- Import Utilities ---
 try:
-    from utils.Realman_controller import RoboticArmController
     from utils.XHand_controller_wuji import (
         MAX_JOINT_EFFORT_LIMIT_A,
         WujiHandDriver,
@@ -55,6 +54,7 @@ try:
     from utils.wuji_fingertip_kinematics import WujiFingertipKinematics
     from utils.wuji_keypoint_visualization import DEFAULT_KEYPOINT_SPECS
     from utils.wuji_hand_spec import (
+        hand_spec,
         HAND_DOF,
         HAND_MODEL,
         HOME_Q,
@@ -180,6 +180,8 @@ class AsyncHardwareInterface:
         self.lock = threading.Lock()
         self.diagnostics_lock = threading.Lock()
         self.diagnostics = {}
+        self.last_arm_success_time = None
+        self.last_hand_success_time = None
 
         self.cache = {
             "arm_state": None,
@@ -197,7 +199,9 @@ class AsyncHardwareInterface:
     def _update_once(self):
         started = time.perf_counter()
         try:
-            _, arm_s = self.arm.get_joint_state()
+            arm_ok, arm_s = self.arm.get_joint_state()
+            if not arm_ok:
+                arm_s = None
         except:
             arm_s = None
         finally:
@@ -219,6 +223,10 @@ class AsyncHardwareInterface:
         finally:
             self._record_diagnostic("camera_read", time.perf_counter() - started)
 
+        if arm_s is not None and len(arm_s) == 7:
+            self.last_arm_success_time = time.monotonic()
+        if hand_s is not None:
+            self.last_hand_success_time = time.monotonic()
         return arm_s, hand_s, frames
 
     def _record_diagnostic(self, name, elapsed_s):
@@ -287,8 +295,30 @@ class TeleopServer:
         kinect_max_age_s=0.2,
         kinect_startup_timeout_s=30.0,
         kinect_pointcloud_points=8192,
+        arm_backend="rm75", arm_ip=ROBOT_IP, arm_port=ROBOT_PORT, arm_side="A",
+        marvin_sdk_root=None, marvin_config=None, hand_side="right",
+        enable_motion=False, tool_xyz_m=(0,0,0), tool_rpy_deg=(0,0,0),
+        tracking_to_base_rpy_deg=(0,0,0),
     ):
         self.running = True
+        self.arm_backend = arm_backend
+        self.motion_enabled = bool(enable_motion)
+        self.hand_side = hand_side
+        self.hand_model, self.hand_urdf, self.model_hand_limits = hand_spec(hand_side)
+        self.arm_metadata = {"model": "MARVIN-M6-CCS-4.0" if arm_backend == "marvin" else "RM75",
+                             "side": arm_side, "hand_side": hand_side,
+                             "joint_units": "radian",
+                             "tracking_to_base_rpy_deg": list(tracking_to_base_rpy_deg),
+                             "tool_xyz_m": list(tool_xyz_m), "tool_rpy_deg": list(tool_rpy_deg)}
+        self.tracking_to_base_rotation = R.from_euler("xyz", tracking_to_base_rpy_deg, degrees=True).as_matrix()
+        self.max_linear_speed = 0.05 if arm_backend == "marvin" else MAX_EE_LINEAR_SPEED_M_S
+        self.max_angular_speed = 20.0 if arm_backend == "marvin" else MAX_EE_ANGULAR_SPEED_DEG_S
+        self.max_displacement = 0.15 if arm_backend == "marvin" else MAX_EE_DISPLACEMENT_M
+        self.max_joint_error = 10.0 if arm_backend == "marvin" else MAX_JOINT_ERROR_DEG
+        if (arm_backend == "marvin" or hand_side == "left") and kinect_addr:
+            raise ValueError("MARVIN/left-hand Kinect geometry is not yet calibrated; use basic no-Kinect mode")
+        if arm_backend == "marvin" and flange_thickness != 0:
+            raise ValueError("MARVIN requires --flange-thickness 0; use --tool-xyz-m/--tool-rpy-deg")
         self.teleop_enabled = False
         self.last_command_time = None
         self.flange_thickness = flange_thickness
@@ -328,35 +358,32 @@ class TeleopServer:
         )
 
         print("=" * 60)
-        print(f"Teleop Server (RM75 + Wuji Hand + RealSense) Starting...")
+        print(f"Teleop Server ({arm_backend} + Wuji {hand_side} Hand) Starting...")
         print("=" * 60)
 
         # ---------------- 1. Hardware Initialization ----------------
 
-        # 1.1 Robot Arm
-        print(f"[Init] Connecting to Robot Arm at {ROBOT_IP}...")
-        try:
-            self.arm = RoboticArmController(ip=ROBOT_IP, port=ROBOT_PORT)
-        except Exception as e:
-            print(f"[Fatal] Arm Connection Failed: {e}")
-            sys.exit(1)
-
-        # 1.2 Kinematics Solver (Replaces old IK)
-        print(f"[Init] Loading Kinematics Model from {URDF_PATH}...")
-        try:
+        # 1.1 Load kinematics before creating any hardware connection.
+        self.keypoint_kinematics = None
+        if arm_backend == "marvin":
+            from utils.marvin_kinematics import MarvinKinematics, VENDOR_ROOT, DEFAULT_CONFIG
+            from utils.marvin_controller import MarvinController
+            marvin_sdk_root = marvin_sdk_root or VENDOR_ROOT
+            marvin_config = marvin_config or DEFAULT_CONFIG
+            self.kinematics = MarvinKinematics(marvin_config, arm_side, marvin_sdk_root,
+                                               tool_xyz_m, tool_rpy_deg)
+            self.arm_metadata["config_sha256"] = self.kinematics.model_config.sha256
+            self.arm = MarvinController(arm_ip, side=arm_side, sdk_root=marvin_sdk_root,
+                                        config_path=marvin_config, enable_motion=enable_motion)
+            self.arm_metadata["controller_version"] = self.arm.version
+        else:
+            from utils.Realman_controller import RoboticArmController
             from utils.rm75_kinematics import RM75Kinematics
-
-            # Note: base_pos=[0,0,0] assumes robot base is world origin
             self.kinematics = RM75Kinematics(URDF_PATH, base_pos=[0, 0, 0])
+            self.arm = RoboticArmController(ip=arm_ip, port=arm_port)
+        if kinect_addr:
             self.keypoint_kinematics = WujiFingertipKinematics()
-            print(
-                "[Init] Distance source: nearest Kinect target-cloud point; "
-                f"keypoints={len(self.distance_keypoint_names)}; "
-                f"hand_eye={self.kinect_hand_eye_path or 'unavailable'}"
-            )
-        except Exception as e:
-            print(f"[Fatal] Kinematics Init Failed: {e}")
-            sys.exit(1)
+        print(f"[Init] Arm={arm_backend}, hand={hand_side}, motion_allowed={self.motion_enabled}")
 
         # 1.3 Dexterous Hand
         print(f"[Init] Connecting to Wuji Hand with backend {hand_backend or 'wujihandpy'}...")
@@ -365,15 +392,16 @@ class TeleopServer:
                 device=hand_device,
                 backend_spec=hand_backend,
                 effort_limit=hand_effort_limit,
+                side=hand_side, enable_motion=enable_motion, defer_enable=True,
             )
 
             hardware_limits = self.hand.get_joint_limits()
             self.hand_limits_min = (
-                np.maximum(JOINT_LIMITS[:, 0], hardware_limits[:, 0])
+                np.maximum(self.model_hand_limits[:, 0], hardware_limits[:, 0])
                 + HAND_LIMIT_MARGIN
             )
             self.hand_limits_max = (
-                np.minimum(JOINT_LIMITS[:, 1], hardware_limits[:, 1])
+                np.minimum(self.model_hand_limits[:, 1], hardware_limits[:, 1])
                 - HAND_LIMIT_MARGIN
             )
             if np.any(self.hand_limits_min >= self.hand_limits_max):
@@ -381,15 +409,9 @@ class TeleopServer:
                     "No valid Wuji joint range remains after intersecting the "
                     "URDF and hardware-calibrated limits"
                 )
-            if np.any(HOME_Q < self.hand_limits_min) or np.any(HOME_Q > self.hand_limits_max):
-                raise RuntimeError("Wuji HOME pose is outside the safe device limits")
-
             device_info = self.hand.get_device_info()
             print(f"[Init] Wuji device info: {device_info}")
-
-            print("[Init] Moving Wuji Hand to model HOME pose...")
-            self.hand.send_joints(HOME_Q)
-            time.sleep(0.5)
+            # Preserve current pose; never send a HOME command during startup.
             self.hand.reset_tactile_sensors()
             print(f"[Init] Wuji Hand connected ({HAND_DOF} DoF).")
         except Exception as e:
@@ -470,18 +492,13 @@ class TeleopServer:
             self.hand.close()
             raise
 
-        # Move only after every required device has passed initialization. A
-        # transient USB/camera failure must not move the arm on each retry.
-        init_joints_deg = [0, 45, 0, 90, 0, -45, 0]
-        print(f"[Init] All hardware ready. Moving Arm to HOME pose: {init_joints_deg} ...")
-        self.arm.move_j_blocking(init_joints_deg, speed=20)
-
         # 1.5 Data Collector
         self.collector = DataCollectorWuji(
             save_dir="data_records_wuji",
-            hand_model=HAND_MODEL,
+            hand_model=self.hand_model,
             hand_joint_names=JOINT_NAMES,
-            hand_urdf=str(WUJI_URDF_PATH),
+            hand_urdf=str(self.hand_urdf),
+            arm_metadata=self.arm_metadata,
             flange_thickness=self.flange_thickness,
             camera_mode=self.camera_mode,
             camera_names=self.enabled_camera_names,
@@ -854,6 +871,13 @@ class TeleopServer:
         cam_frames = cam_frames or {}
         control_monotonic_ns = time.monotonic_ns()
 
+        # Detect missing feedback even when previous numeric values remain cached.
+        now = time.monotonic()
+        arm_stamp = self.hw_interface.last_arm_success_time
+        hand_stamp = self.hw_interface.last_hand_success_time
+        if self.teleop_enabled and (arm_stamp is None or hand_stamp is None
+            or now-arm_stamp > 0.25 or now-hand_stamp > 0.25):
+            self._stop_teleop("Hardware feedback stale")
         # 1. Arm State
         if arm_state:
             self.arm_curr_q_real_rad = np.deg2rad(np.array(arm_state))
@@ -910,26 +934,21 @@ class TeleopServer:
         # 1. Safety Check (Arm Lag)
         err_deg = np.rad2deg(np.max(np.abs(obs["arm_qpos"] - self.arm_target_q_rad)))
 
-        current_limit = MAX_JOINT_ERROR_DEG
-        if self.teleop_enabled and (now - self.teleop_start_time < STARTUP_GRACE_PERIOD):
-            current_limit = 180.0  # Relax limit during startup
+        current_limit = getattr(self, "max_joint_error", MAX_JOINT_ERROR_DEG)
 
         if self.teleop_enabled:
             if err_deg > current_limit:
                 print(f"\n[DANGER] Arm Lag > {current_limit}° ({err_deg:.1f}°). Resetting target.")
-                # Sync target to current to stop dangerous movements
-                self.arm_target_q_rad = obs["arm_qpos"].copy()
-                self.last_valid_ee_pose = obs["ee_pose"].copy()
-                self.desired_ee_pose = obs["ee_pose"].copy()
-                # self.teleop_enabled = False # Option: Force stop
+                self._stop_teleop("Arm tracking error")
+                return costs
 
             # 2. Inverse Kinematics (Arm)
             if self.desired_ee_pose is not None and self.last_valid_ee_pose is not None:
                 target_pose = limit_pose_step(
                     self.last_valid_ee_pose,
                     self.desired_ee_pose,
-                    MAX_EE_LINEAR_SPEED_M_S / CONTROL_HZ,
-                    np.deg2rad(MAX_EE_ANGULAR_SPEED_DEG_S / CONTROL_HZ),
+                    getattr(self, "max_linear_speed", MAX_EE_LINEAR_SPEED_M_S) / CONTROL_HZ,
+                    np.deg2rad(getattr(self, "max_angular_speed", MAX_EE_ANGULAR_SPEED_DEG_S) / CONTROL_HZ),
                 )
                 tgt_pos = target_pose[:3]
                 tgt_quat = target_pose[3:]
@@ -954,7 +973,11 @@ class TeleopServer:
 
                     # Execute Arm Command
                     t0 = time.perf_counter()
-                    self.arm.move_j_stream(np.rad2deg(next_q_rad))
+                    try:
+                        self.arm.move_j_stream(np.rad2deg(next_q_rad))
+                    except Exception as exc:
+                        self._stop_teleop(f"Arm command failed: {exc}")
+                        return costs
                     costs["arm_send_ms"] = (time.perf_counter() - t0) * 1000
                     self.arm_target_q_rad = next_q_rad
                     next_pos, next_quat = self.kinematics.compute_fk(
@@ -963,6 +986,9 @@ class TeleopServer:
                     self.last_valid_ee_pose = np.concatenate(
                         [next_pos, next_quat]
                     )
+                elif getattr(self, "arm_backend", "rm75") == "marvin":
+                    self._stop_teleop("MARVIN inverse kinematics rejected target")
+                    return costs
 
             # 3. Hand Control
             # Smooth Hand
@@ -981,7 +1007,7 @@ class TeleopServer:
             except Exception as exc:
                 costs["hand_send_ms"] = (time.perf_counter() - t0) * 1000
                 print(f"\n[DANGER] Wuji Hand control failed: {exc}. Teleoperation stopped.")
-                self.teleop_enabled = False
+                self._stop_teleop(f"Hand command failed: {exc}")
                 self.arm_target_q_rad = obs["arm_qpos"].copy()
 
         return costs
@@ -1094,6 +1120,8 @@ class TeleopServer:
 
     def _estimate_keypoint_distances(self, arm_q_rad, hand_q_rad, camera_frames):
         """Return each hand keypoint's nearest target-cloud distance in meters."""
+        if getattr(self, "keypoint_kinematics", None) is None:
+            return np.full(len(self.distance_keypoint_names), np.nan, np.float64)
         positions = self.keypoint_kinematics.estimate_keypoints(
             arm_q_rad,
             hand_q_rad,
@@ -1170,9 +1198,13 @@ class TeleopServer:
         # 1. Control Logic Switches
         if msg_type == "control":
             if action == "teleop_on":
+                if msg.get("hand_side", "right") != getattr(self, "hand_side", "right"):
+                    print("[Warn] Client/server hand sides differ; refusing teleoperation")
+                    return
                 self._enable_teleop()
 
             elif action == "teleop_off":
+                self._stop_teleop("Client paused")
                 self.teleop_enabled = False
                 self.last_command_time = None
                 self.human_anchor_pos = None
@@ -1192,7 +1224,10 @@ class TeleopServer:
         # 2. Motion Commands (Only when Teleop Active)
         elif msg_type == "cmd" and self.teleop_enabled:
             # Update Arm Target (Cartesian)
-            raw_wrist = msg.get("right_wrist_mat")
+            if msg.get("hand_side", "right") != getattr(self, "hand_side", "right"):
+                self._stop_teleop("Client hand side changed")
+                return
+            raw_wrist = msg.get("wrist_mat", msg.get("right_wrist_mat"))
             try:
                 wrist = np.asarray(raw_wrist, dtype=np.float64)
             except (TypeError, ValueError):
@@ -1228,12 +1263,21 @@ class TeleopServer:
             and self.last_command_time is not None
             and time.monotonic() - self.last_command_time > COMMAND_WATCHDOG_S
         ):
-            print("[Server] Input command watchdog expired; teleoperation stopped")
+            self._stop_teleop("Input command watchdog expired")
             self.teleop_enabled = False
             self.last_command_time = None
             self.human_anchor_pos = None
             self.human_anchor_rot = None
             self._finish_recording()
+
+    def _stop_teleop(self, reason):
+        self.teleop_enabled = False
+        self.last_command_time = None
+        self.human_anchor_pos = None
+        self.human_anchor_rot = None
+        if hasattr(getattr(self, "arm", None), "stop"):
+            self.arm.stop()
+        print(f"[Stop] {reason}; press T again after resolving the cause")
 
     def _enable_teleop(self):
         """
@@ -1242,8 +1286,15 @@ class TeleopServer:
         2. Compute current TCP pose (Anchor).
         3. Set safety timers.
         """
+        if not getattr(self, "motion_enabled", False):
+            print("[Read-only] Start the server with --enable-motion to permit movement")
+            return
+        if self.teleop_enabled:
+            return
         # Read State
-        _, state = self.arm.get_joint_state()
+        ok, state = self.arm.get_joint_state()
+        if not ok:
+            state = None
         if not state:
             print("[Warn] Cannot read arm state, Teleop enable failed.")
             return
@@ -1276,10 +1327,21 @@ class TeleopServer:
             self.hand_target_q = h_curr.copy()
             self.hand_command_q = h_curr.copy()
 
+        if hasattr(self.arm, "enable"):
+            try:
+                self.hand.enable()
+                self.arm.enable()
+            except Exception as exc:
+                self._stop_teleop(f"Enable failed: {exc}")
+                self.hand.close()
+                self.running = False
+                return
+        else:
+            self.hand.enable()
         self.teleop_enabled = True
         self.last_command_time = time.monotonic()
         self.teleop_start_time = time.time()
-        print(f"\n[Server] Teleop ON. Grace Period: {STARTUP_GRACE_PERIOD}s. Robot Anchor: {self.robot_anchor_pos}")
+        print(f"\n[Server] Teleop ON. Robot Anchor: {self.robot_anchor_pos}")
 
     def _update_arm_target_from_wrist(self, flat_mat):
         """
@@ -1289,8 +1351,9 @@ class TeleopServer:
             return
 
         mat = np.array(flat_mat).reshape(4, 4)
-        human_pos = mat[:3, 3]
-        human_rot_mat = self.fixed_rot_mat @ mat[:3, :3]
+        basis = getattr(self, "tracking_to_base_rotation", np.eye(3))
+        human_pos = basis @ mat[:3, 3]
+        human_rot_mat = basis @ self.fixed_rot_mat @ mat[:3, :3]
 
         # Initialize Human Anchor on first frame
         if self.human_anchor_pos is None:
@@ -1302,12 +1365,13 @@ class TeleopServer:
         delta_human = human_pos - self.human_anchor_pos
         delta_robot = delta_human * ARM_MOTION_SCALE
         delta_norm = np.linalg.norm(delta_robot)
-        if delta_norm > MAX_EE_DISPLACEMENT_M:
-            delta_robot *= MAX_EE_DISPLACEMENT_M / delta_norm
+        max_displacement = getattr(self, "max_displacement", MAX_EE_DISPLACEMENT_M)
+        if delta_norm > max_displacement:
+            delta_robot *= max_displacement / delta_norm
         target_pos = self.robot_anchor_pos + delta_robot
 
         # Safety: Virtual Table
-        if target_pos[2] < Z_MIN_HEIGHT:
+        if getattr(self, "arm_backend", "rm75") != "marvin" and target_pos[2] < Z_MIN_HEIGHT:
             target_pos[2] = Z_MIN_HEIGHT
 
         # 2. Rotation Mapping (relative to both activation poses)
@@ -1327,6 +1391,12 @@ class TeleopServer:
 
     def cleanup(self):
         print("\n[Exit] Cleaning up resources...")
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
+        self.running = False
+        if hasattr(self.arm, "stop"):
+            self.arm.stop()
         # Save data if still recording
         if self.collector.recording:
             self._finish_recording()
@@ -1356,6 +1426,18 @@ class TeleopServer:
 
 def main():
     parser = argparse.ArgumentParser(description="Teleop Server (Wuji Data Collection Mode)")
+    from utils.marvin_kinematics import VENDOR_ROOT, DEFAULT_CONFIG
+    parser.add_argument("--arm-backend", choices=("rm75", "marvin"), default="rm75")
+    parser.add_argument("--arm-ip", default=ROBOT_IP)
+    parser.add_argument("--arm-port", type=int, default=ROBOT_PORT)
+    parser.add_argument("--arm-side", choices=("A", "B"), default="A")
+    parser.add_argument("--marvin-sdk-root", type=Path, default=VENDOR_ROOT)
+    parser.add_argument("--marvin-config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--hand-side", choices=("left", "right"), default="right")
+    parser.add_argument("--enable-motion", action="store_true", help="Allow arm/hand motion; default is read-only")
+    parser.add_argument("--tool-xyz-m", type=float, nargs=3, default=(0,0,0))
+    parser.add_argument("--tool-rpy-deg", type=float, nargs=3, default=(0,0,0))
+    parser.add_argument("--tracking-to-base-rpy-deg", type=float, nargs=3, default=(0,0,0))
     parser.add_argument("--cmd-addr", default="tcp://*:6100", help="ZMQ Command Bind Address")
     parser.add_argument("--img-addr", default="tcp://*:6101", help="ZMQ Image Stream Bind Address")
     parser.add_argument(
@@ -1404,7 +1486,7 @@ def main():
     parser.add_argument(
         "--hand-device",
         default=None,
-        help="Wuji USB serial number; omitted selects the connected right hand by side",
+        help="Wuji USB serial number; omitted selects --hand-side",
     )
     parser.add_argument(
         "--hand-effort-limit",
@@ -1451,6 +1533,12 @@ def main():
             f"(0, {MAX_JOINT_EFFORT_LIMIT_A}] amperes"
         )
 
+    if not np.isfinite([*args.tool_xyz_m, *args.tool_rpy_deg, *args.tracking_to_base_rpy_deg]).all():
+        parser.error("Tool and tracking transforms must be finite")
+    if args.arm_backend == "marvin" and args.flange_thickness != 0:
+        parser.error("MARVIN requires --flange-thickness 0; specify tool transform instead")
+    if (args.arm_backend == "marvin" or args.hand_side == "left") and args.kinect_addr:
+        parser.error("MARVIN/left-hand Kinect is not supported in this basic teleoperation path")
     server = TeleopServer(
         args.cmd_addr,
         args.img_addr,
@@ -1459,6 +1547,11 @@ def main():
         hand_effort_limit=args.hand_effort_limit,
         flange_thickness=args.flange_thickness,
         camera_mode=args.camera_mode,
+        arm_backend=args.arm_backend, arm_ip=args.arm_ip, arm_port=args.arm_port,
+        arm_side=args.arm_side, marvin_sdk_root=args.marvin_sdk_root,
+        marvin_config=args.marvin_config, hand_side=args.hand_side,
+        enable_motion=args.enable_motion, tool_xyz_m=args.tool_xyz_m,
+        tool_rpy_deg=args.tool_rpy_deg, tracking_to_base_rpy_deg=args.tracking_to_base_rpy_deg,
         kinect_addr=args.kinect_addr,
         kinect_hand_eye_path=args.kinect_hand_eye,
         kinect_max_age_s=args.kinect_max_age,
@@ -1469,8 +1562,6 @@ def main():
     # Signal Handler for Ctrl+C
     def signal_handler(sig, frame):
         server.running = False
-        server.cleanup()
-        sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -1480,6 +1571,8 @@ def main():
         print(f"[Fatal Crash] {e}")
         import traceback
         traceback.print_exc()
+        raise
+    finally:
         server.cleanup()
 
 

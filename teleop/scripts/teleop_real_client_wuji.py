@@ -27,7 +27,6 @@ if str(TELEOP_ROOT) not in sys.path:
 
 try:
     from utils.wuji_hand_spec import JOINT_NAMES
-    from utils.wuji_retargeting import WujiDexPilotRetargeter
 except ImportError:
     print("[Error] Wuji teleoperation dependencies could not be imported.")
     traceback.print_exc()
@@ -146,6 +145,11 @@ def parse_args():
     parser.add_argument("--teleop-hz", type=float, default=60.0, help="Target Control Frequency (Hz)")
     parser.add_argument("--devise", "--device", dest="input_device", choices=("vr", "glove"), default="vr", help="VR or Wuji Glove + Vive Tracker input")
     parser.add_argument("--retarget-config", default="teleop/wuji.yml", help="Path to Wuji retargeting config (VR only)")
+    parser.add_argument("--hand-side", choices=("left", "right"), default="right")
+    parser.add_argument("--tracker-source", choices=("openvr", "udp"), default="openvr")
+    parser.add_argument("--tracker-bind", default="0.0.0.0")
+    parser.add_argument("--tracker-port", type=int, default=6210)
+    parser.add_argument("--tracker-source-ip", help="Windows sender IPv4; required for UDP")
     parser.add_argument("--glove-sn", help="Wuji Glove serial number")
     parser.add_argument("--tracker-serial", help="Vive Tracker serial number")
     parser.add_argument("--glove-user-id", help="Optional calibrated Wuji SDK user ID")
@@ -162,6 +166,10 @@ def parse_args():
         parser.error("Glove timeouts and startup frame counts must be positive")
     if not np.isfinite([*args.tracker_to_wrist_xyz_m, *args.tracker_to_wrist_rpy_deg]).all():
         parser.error("Tracker-to-wrist transform must be finite")
+    if args.hand_side == "left" and args.input_device != "glove":
+        parser.error("Left-hand input currently requires --devise glove")
+    if args.tracker_source == "udp" and not args.tracker_source_ip:
+        parser.error("UDP tracker requires --tracker-source-ip")
     return args
 
 
@@ -243,6 +251,7 @@ def main():
     right_retargeter = None
     if args.input_device == "vr":
         print(f"[Teleop] Initializing Retargeting (Config: {args.retarget_config})...")
+        from utils.wuji_retargeting import WujiDexPilotRetargeter
         right_retargeter = WujiDexPilotRetargeter(args.retarget_config)
         print(f"[Teleop] Wuji joint order: {JOINT_NAMES}")
         print(f"[Teleop] Wuji fingertip scales: {right_retargeter.fingertip_scale_summary}")
@@ -292,6 +301,11 @@ def main():
         try:
             teleoperator = GloveTrackerInput(
                 glove_serial=args.glove_sn,
+                hand_side=args.hand_side,
+                tracker_source=args.tracker_source,
+                tracker_bind=args.tracker_bind,
+                tracker_port=args.tracker_port,
+                tracker_source_ip=args.tracker_source_ip,
                 tracker_serial=args.tracker_serial,
                 user_id=args.glove_user_id,
                 tracker_to_wrist_xyz_m=args.tracker_to_wrist_xyz_m,
@@ -408,7 +422,7 @@ def main():
                     print("[Teleop] >>> Valid hand data detected. Teleop ACTIVE!")
                     teleop_active = True
                     # Notify server to compute anchor
-                    cmd_sock.send_json({"type": "control", "action": "teleop_on"})
+                    cmd_sock.send_json({"type": "control", "action": "teleop_on", "hand_side": args.hand_side})
                 else:
                     # Log waiting status every second
                     if time.time() - last_stat_time > 1.0:
@@ -438,7 +452,9 @@ def main():
                         # 2. Construct Payload
                         cmd = {
                             "type": "cmd",
+                            "wrist_mat": wrist_flat,
                             "right_wrist_mat": wrist_flat,
+                            "hand_side": args.hand_side,
                             "hand_qpos": hand_qpos_list
                         }
 
@@ -519,7 +535,13 @@ def main():
     except KeyboardInterrupt:
         print("\n[Teleop] Interrupted by user.")
     finally:
+        try:
+            cmd_sock.send_json({"type": "control", "action": "teleop_off"}, flags=zmq.NOBLOCK)
+        except zmq.ZMQError:
+            pass
         teleoperator.close()
+        cmd_sock.close(linger=0)
+        img_sock.close(linger=0)
         ctx.term()
         print("[Teleop] Shutdown complete.")
 

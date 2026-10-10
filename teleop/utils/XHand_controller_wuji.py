@@ -12,6 +12,7 @@ from utils.wuji_hand_spec import (
     JOINT_LIMITS,
     JOINT_NAMES,
     validate_joint_vector,
+    hand_spec,
 )
 
 
@@ -75,6 +76,7 @@ def _open_sdk_hand(
     sdk,
     device,
     *,
+    side="right",
     attempts=_CONNECT_ATTEMPTS,
     retry_delay_s=_CONNECT_RETRY_DELAY_S,
     sleep=time.sleep,
@@ -86,7 +88,7 @@ def _open_sdk_hand(
         try:
             if device:
                 return sdk.Hand(serial_number=str(device))
-            return sdk.Hand(side="right")
+            return sdk.Hand(side=side)
         except ConnectionError as exc:
             if attempt == attempts:
                 raise ConnectionError(
@@ -101,7 +103,7 @@ def _open_sdk_hand(
 
 
 class WujihandPyBackend:
-    """Control a first-generation right Wuji Hand through its official USB SDK."""
+    """Control a first-generation Wuji Hand through its official USB SDK."""
 
     def __init__(
         self,
@@ -111,6 +113,9 @@ class WujihandPyBackend:
         effort_limit=None,
         lowpass_cutoff_hz=5.0,
         heartbeat_interval_s=1.0,
+        side="right",
+        enable_motion=True,
+        defer_enable=False,
     ):
         if tuple(joint_names) != JOINT_NAMES:
             raise ValueError(
@@ -144,6 +149,10 @@ class WujihandPyBackend:
                 "wujihandpy==1.8.0'." + source_note
             ) from exc
 
+        hand_spec(side)
+        self._lowpass_cutoff_hz = float(lowpass_cutoff_hz)
+        self._motion_allowed = bool(enable_motion)
+        self._side = side
         self._sdk = wujihandpy
         self._lock = threading.Lock()
         self._diagnostics_lock = threading.Lock()
@@ -161,15 +170,14 @@ class WujihandPyBackend:
         self._device_info = {}
 
         try:
-            # --hand-device is the USB serial number. Without it, select the
-            # right hand explicitly so a left-hand device cannot be driven.
-            self._hand = _open_sdk_hand(wujihandpy, device)
+            # Select and verify the requested side independently of the USB serial.
+            self._hand = _open_sdk_hand(wujihandpy, device, side=side)
 
             handedness = int(self._hand.read_handedness())
-            if handedness != _RIGHT_HANDEDNESS:
+            if handedness != (0 if side == "right" else 1):
                 raise RuntimeError(
                     f"Connected Wuji device reports handedness={handedness}; "
-                    "the current URDF and teleoperation path require a right hand."
+                    f"the selected teleoperation path requires a {side} hand."
                 )
 
             lower = _flatten_sdk_array(
@@ -192,12 +200,12 @@ class WujihandPyBackend:
             self._device_info = {
                 "usb_serial_number": str(device) if device else "auto-by-side",
                 "product_serial_number": product_sn,
-                "handedness": "right",
+                "handedness": side,
                 "transport": "USB-CDC",
                 "sdk": "wujihandpy",
             }
 
-            if requested_effort_limits is not None:
+            if requested_effort_limits is not None and self._motion_allowed:
                 verified_effort_limits = _configure_joint_effort_limits(
                     self._hand, requested_effort_limits
                 )
@@ -215,21 +223,36 @@ class WujihandPyBackend:
             self._hand.disable_thread_safe_check()
             # Mark it before the blocking write so cleanup still attempts to
             # disable if the USB acknowledgement times out after motors changed state.
-            self._enabled = True
-            self._hand.write_joint_enabled(True)
-            self._controller = self._hand.realtime_controller(
-                enable_upstream=True,
-                filter=wujihandpy.filter.LowPass(
-                    cutoff_freq=float(lowpass_cutoff_hz)
-                ),
-            )
+            if self._motion_allowed and not defer_enable:
+                self.enable()
             self._last_heartbeat_time = time.monotonic()
         except Exception:
             self.close()
             raise
 
+    def enable(self):
+        with self._lock:
+            self._raise_if_unavailable()
+            if not self._motion_allowed:
+                raise RuntimeError("Hand motion is disabled")
+            if self._enabled:
+                return
+            current = _flatten_sdk_array(self._hand.read_joint_actual_position(), label="Wuji enable feedback")
+            try:
+                self._controller = self._hand.realtime_controller(
+                    enable_upstream=True,
+                    filter=self._sdk.filter.LowPass(cutoff_freq=self._lowpass_cutoff_hz),
+                )
+                self._controller.set_joint_target_position(current.reshape(_SDK_ARRAY_SHAPE))
+                self._enabled = True
+                self._hand.write_joint_enabled(True)
+            except Exception:
+                # Caller closes backend; mark enabled before acknowledgement for cleanup.
+                self._enabled = True
+                raise
+
     def _raise_if_unavailable(self):
-        if self._closed or self._controller is None:
+        if self._closed or self._hand is None:
             raise ConnectionError("Wuji Hand controller is closed")
         if self._connection_error is not None:
             raise ConnectionError("Wuji Hand USB connection was lost") from self._connection_error
@@ -279,6 +302,8 @@ class WujihandPyBackend:
             )
 
     def send_joint_positions(self, joint_positions):
+        if not self._motion_allowed:
+            raise RuntimeError("Hand motion is disabled")
         joints = validate_joint_vector(joint_positions, label="Wuji SDK command")
         lower = self._joint_limits[:, 0]
         upper = self._joint_limits[:, 1]
@@ -318,7 +343,8 @@ class WujihandPyBackend:
                 pdo_started = time.perf_counter()
                 try:
                     self._last_positions = _flatten_sdk_array(
-                        self._controller.get_joint_actual_position(),
+                        (self._controller.get_joint_actual_position() if self._controller is not None
+                         else self._hand.read_joint_actual_position()),
                         label="Wuji realtime feedback",
                     )
                 finally:
@@ -368,7 +394,9 @@ class WujihandPyBackend:
 class MockWujiBackend:
     """In-memory backend for offline integration tests; selected explicitly."""
 
-    def __init__(self, device=None, joint_names=JOINT_NAMES, effort_limit=None):
+    def __init__(self, device=None, joint_names=JOINT_NAMES, effort_limit=None, side="right", enable_motion=True, defer_enable=False):
+        self._limits = hand_spec(side)[2]
+        self._motion_allowed = enable_motion
         self.joint_names = tuple(joint_names)
         self.q = np.zeros(len(self.joint_names), dtype=np.float64)
         self.effort_limits = (
@@ -378,13 +406,15 @@ class MockWujiBackend:
         )
 
     def send_joint_positions(self, joint_positions):
+        if not self._motion_allowed:
+            raise RuntimeError("Hand motion is disabled")
         self.q = validate_joint_vector(joint_positions, label="Mock Wuji command").copy()
 
     def read_joint_positions(self):
         return self.q.copy()
 
     def get_joint_limits(self):
-        return JOINT_LIMITS.copy()
+        return self._limits.copy()
 
     def get_device_info(self):
         info = {"sdk": "mock", "transport": "memory"}
@@ -411,19 +441,30 @@ def _load_backend(spec: str):
 class WujiHandDriver:
     """Expose the hand interface expected by the Wuji teleoperation server."""
 
-    def __init__(self, device=None, backend_spec=None, effort_limit=None):
+    def __init__(self, device=None, backend_spec=None, effort_limit=None, *, side="right", enable_motion=True, defer_enable=False):
         if backend_spec in (None, "wujihandpy"):
             backend_cls = WujihandPyBackend
         elif backend_spec == "mock":
             backend_cls = MockWujiBackend
         else:
             backend_cls = _load_backend(backend_spec)
+        self._motion_allowed = enable_motion
         backend_kwargs = {"device": device, "joint_names": JOINT_NAMES}
+        if backend_spec in (None, "wujihandpy", "mock") or side != "right" or not enable_motion:
+            backend_kwargs.update(side=side, enable_motion=enable_motion, defer_enable=defer_enable)
         if effort_limit is not None:
             backend_kwargs["effort_limit"] = effort_limit
         self._backend = backend_cls(**backend_kwargs)
 
+    def enable(self):
+        if not self._motion_allowed:
+            raise RuntimeError("Hand motion is disabled")
+        if hasattr(self._backend, "enable"):
+            self._backend.enable()
+
     def send_joints(self, joint_vals):
+        if not self._motion_allowed:
+            raise RuntimeError("Hand motion is disabled")
         joints = validate_joint_vector(joint_vals, label="Wuji command")
         self._backend.send_joint_positions(joints.copy())
 

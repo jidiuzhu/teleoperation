@@ -116,6 +116,28 @@ class GloveInputTest(unittest.TestCase):
             self.assertTrue(manager.disconnected)
             self.assertTrue(subscription.closed)
 
+    def test_left_glove_selects_left_retargeting(self):
+        subscription=FakeSubscription()
+        manager=FakeManager(subscription)
+        manager.connect=lambda **kwargs: SimpleNamespace(
+            hand_side=lambda:SimpleNamespace(get=lambda:"Left"),
+            hand_skeleton=lambda:SimpleNamespace(subscribe=lambda:subscription))
+        calls=[]
+        def retarget(model,side):
+            calls.append((model,side))
+            return SimpleNamespace(step=lambda points:np.zeros(20))
+        sdk=SimpleNamespace(DeviceType=SimpleNamespace(WujiGlove="glove"),
+            HandModel=SimpleNamespace(WujiHand="hand"),
+            Handedness=SimpleNamespace(Right="right",Left="left"),
+            RetargetSession=SimpleNamespace(for_hand=retarget),
+            SdkManager=SimpleNamespace(instance=lambda:manager))
+        with patch.dict(sys.modules,{"wuji_sdk":sdk}),patch("utils.glove_tracker_input.ViveWristTracker",FakeTracker):
+            inp=GloveTrackerInput(glove_serial="glove-1",tracker_serial="tracker-1",hand_side="left",startup_valid_frames=2)
+            try:
+                self.assertEqual(calls,[("hand","left")])
+                self.assertIsNotNone(inp.step())
+            finally: inp.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,3 +21,7 @@ foundationpose-kinect-0.1.0/foundationpose_cpp/test_output/
 teleop/cert.pem
 teleop/key.pem
 teleop/kinect_hand_eye.json
+
+third_party/marvin/SDK_PYTHON/*.so
+third_party/marvin/SDK_PYTHON/*.building
+third_party/marvin/SDK_PYTHON/build-info.json

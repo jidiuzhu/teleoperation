@@ -8,7 +8,7 @@ from contextlib import suppress
 import numpy as np
 
 from utils.vive_tracker import ViveWristTracker
-from utils.wuji_hand_spec import JOINT_LIMITS, validate_joint_vector
+from utils.wuji_hand_spec import JOINT_LIMITS, validate_joint_vector, hand_spec
 
 
 OPENVR_TO_ROBOT_TRACKING = np.array(
@@ -37,9 +37,9 @@ def skeleton_keypoints(frame) -> np.ndarray:
     return array
 
 
-def validated_glove_target(values) -> np.ndarray:
+def validated_glove_target(values, limits=JOINT_LIMITS) -> np.ndarray:
     target = validate_joint_vector(values, label="Wuji Glove retargeting")
-    return np.clip(target, JOINT_LIMITS[:, 0], JOINT_LIMITS[:, 1])
+    return np.clip(target, limits[:, 0], limits[:, 1])
 
 
 class GloveTrackerInput:
@@ -49,12 +49,18 @@ class GloveTrackerInput:
         glove_serial: str,
         tracker_serial: str,
         user_id: str | None = None,
+        hand_side="right",
+        tracker_source="openvr",
+        tracker_bind="0.0.0.0",
+        tracker_port=6210,
+        tracker_source_ip=None,
         tracker_to_wrist_xyz_m=(0.0, 0.0, 0.0),
         tracker_to_wrist_rpy_deg=(0.0, 0.0, 0.0),
         tracker_zero_frames: int = 20,
         startup_valid_frames: int = 10,
         tracking_timeout_s: float = 0.25,
     ):
+        self.hand_limits = hand_spec(hand_side)[2]
         self.manager = None
         self.subscription = None
         self.tracker = None
@@ -79,12 +85,21 @@ class GloveTrackerInput:
             if len(gloves) != 1:
                 raise RuntimeError(f"Wuji Glove {glove_serial!r} was not found")
             glove = self.manager.connect(sn=gloves[0].sn, device_name="teleop_input_glove")
-            if str(glove.hand_side().get()).split(".")[-1].lower() != "right":
-                raise RuntimeError("This teleoperation path requires a right Wuji Glove")
-            self.session = RetargetSession.for_hand(HandModel.WujiHand, side=Handedness.Right)
+            if str(glove.hand_side().get()).split(".")[-1].lower() != hand_side:
+                raise RuntimeError(f"This path requires a {hand_side} Wuji Glove")
+            self.session = RetargetSession.for_hand(HandModel.WujiHand, side=(Handedness.Right if hand_side == "right" else Handedness.Left))
             self.subscription = glove.hand_skeleton().subscribe()
-            self.tracker = ViveWristTracker(
+            tracker_cls = ViveWristTracker
+            tracker_kwargs = {}
+            if tracker_source == "udp":
+                from utils.network_tracker import NetworkWristTracker
+                tracker_cls = NetworkWristTracker
+                tracker_kwargs = dict(bind=tracker_bind, port=tracker_port, source_ip=tracker_source_ip, timeout_s=tracking_timeout_s)
+            elif tracker_source != "openvr":
+                raise ValueError("Unknown tracker source")
+            self.tracker = tracker_cls(
                 tracker_serial,
+                **tracker_kwargs,
                 tracker_to_wrist_xyz_m=tracker_to_wrist_xyz_m,
                 tracker_to_wrist_rpy_deg=tracker_to_wrist_rpy_deg,
             )
@@ -103,7 +118,7 @@ class GloveTrackerInput:
             frame = next_frame
         if frame is not None:
             self.last_qpos = validated_glove_target(
-                self.session.step(skeleton_keypoints(frame))
+                self.session.step(skeleton_keypoints(frame)), self.hand_limits
             )
             self.last_glove_time = time.monotonic()
         return self.last_qpos

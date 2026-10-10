@@ -29,6 +29,7 @@ class DataCollectorWuji:
         distance_keypoint_names,
         distance_T_base_camera=None,
         flush_every_frames: int = 15,
+        arm_metadata=None,
     ):
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
@@ -36,6 +37,7 @@ class DataCollectorWuji:
         self.start_time = 0.0
         self.task_name = "default"
         self.input_device = "unknown"
+        self.arm_metadata = dict(arm_metadata or {})
         self.hand_model = hand_model
         self.hand_joint_names = tuple(hand_joint_names)
         self.hand_urdf = hand_urdf
@@ -74,6 +76,7 @@ class DataCollectorWuji:
         h5_file.attrs["created_at"] = created_at
         h5_file.attrs["recording_complete"] = False
         h5_file.attrs["writer"] = "streaming-v1"
+        h5_file.attrs["arm_metadata"] = json.dumps(self.arm_metadata)
         h5_file.attrs["hand_model"] = self.hand_model
         h5_file.attrs["hand_dof"] = len(self.hand_joint_names)
         h5_file.attrs["hand_joint_names"] = json.dumps(self.hand_joint_names)

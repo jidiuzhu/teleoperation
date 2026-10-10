@@ -19,9 +19,17 @@ JOINT_NAMES = tuple(
 )
 
 
-def _load_joint_limits() -> np.ndarray:
-    root = ET.parse(URDF_PATH).getroot()
-    if root.attrib.get("name") != HAND_MODEL:
+def hand_spec(side="right"):
+    if side not in ("left", "right"):
+        raise ValueError("Hand side must be left or right")
+    path = URDF_PATH.with_name(f"{side}.urdf")
+    model = f"wujihand-{side}-v1.0.1"
+    return model, path, _load_joint_limits(path, model)
+
+
+def _load_joint_limits(path=URDF_PATH, model=HAND_MODEL) -> np.ndarray:
+    root = ET.parse(path).getroot()
+    if root.attrib.get("name") != model:
         raise ValueError(f"Unexpected Wuji model in {URDF_PATH}: {root.attrib.get('name')!r}")
 
     joints = {joint.attrib["name"]: joint for joint in root.findall("joint")}

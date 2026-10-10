@@ -1,0 +1,11 @@
+# Basic MARVIN + first-generation Wuji teleoperation on Ubuntu.
+# Install in a dedicated Python environment. Native hardware wheels must support
+# the selected Python version AND architecture (aarch64 on GB10).
+numpy>=2,<2.3
+scipy
+h5py
+pyzmq
+opencv-python-headless>=4.12,<4.13
+wujihandpy==1.8.0
+wuji-sdk==2026.8.31
+# SteamVR/OpenVR run on Windows; there install: py -m pip install openvr

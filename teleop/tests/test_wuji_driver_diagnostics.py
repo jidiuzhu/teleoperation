@@ -107,6 +107,7 @@ def make_backend():
     backend._controller = _FakeController()
     backend._hand = _FakeHand()
     backend._closed = False
+    backend._motion_allowed = True
     backend._connection_error = None
     backend._heartbeat_interval_s = 0.0
     backend._last_heartbeat_time = 0.0

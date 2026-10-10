@@ -1,4 +1,6 @@
-# RM75 + Wuji Hand 遥操作与 ACTBH 模仿学习
+# RM75 / MARVIN + Wuji Hand 遥操作与 ACTBH 模仿学习
+
+MARVIN M6-CCS 4.0 左臂（100341）+ Wuji 一代左手 + Windows Tracker 转发的基础部署见 [MARVIN.md](MARVIN.md)。服务端现在默认只读，取消启动 HOME 动作；原 RM75 遥操作也需显式增加 `--enable-motion` 后才能按 T 启动运动。ACTBH/Kinect 流程仍针对 RM75 右手。
 
 输入可选 VR 或 Wuji Glove + Vive Tracker；两者采集相同的 27 维关节状态/命令。训练和部署仅保留 ACTBH：Kinect RGB、深度、分割目标点云、15 个手部关键点到目标点云的最近距离。无 Kinect 录制可检查摇操和回放，但不能直接训练该策略。
 
