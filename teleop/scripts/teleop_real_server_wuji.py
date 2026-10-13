@@ -178,6 +178,7 @@ class AsyncHardwareInterface:
 
         self.running = True
         self.lock = threading.Lock()
+        self.feedback_io_lock = threading.Lock()
         self.diagnostics_lock = threading.Lock()
         self.diagnostics = {}
         self.last_arm_success_time = None
@@ -196,38 +197,54 @@ class AsyncHardwareInterface:
         self.thread.start()
         print("[AsyncHW] Hardware background thread started.")
 
+    def refresh_joint_feedback(self):
+        # Serialize worker and startup refreshes so an older read cannot overwrite
+        # a newer sample. Timestamp each device at query start, not after camera I/O.
+        with self.feedback_io_lock:
+            for key, stamp_name, read in (
+                ("arm_state", "last_arm_success_time", self.arm.get_joint_state),
+                ("hand_state", "last_hand_success_time", self.hand.get_composite_state),
+            ):
+                stamp = time.monotonic()
+                started = time.perf_counter()
+                value = None
+                try:
+                    result = read()
+                    if key == "arm_state":
+                        ok, result = result
+                        if not ok or result is None or len(result) != 7:
+                            result = None
+                    value = result
+                except Exception:
+                    pass
+                finally:
+                    self._record_diagnostic("arm_read" if key == "arm_state" else "hand_read",
+                                            time.perf_counter()-started)
+                with self.lock:
+                    self.cache[key] = value
+                    if value is not None:
+                        setattr(self, stamp_name, stamp)
+            return self.get_snapshot()
+
     def _update_once(self):
-        started = time.perf_counter()
-        try:
-            arm_ok, arm_s = self.arm.get_joint_state()
-            if not arm_ok:
-                arm_s = None
-        except:
-            arm_s = None
-        finally:
-            self._record_diagnostic("arm_read", time.perf_counter() - started)
-
-        started = time.perf_counter()
-        try:
-            hand_s = self.hand.get_composite_state()
-        except:
-            hand_s = None
-        finally:
-            self._record_diagnostic("hand_read", time.perf_counter() - started)
-
+        self.refresh_joint_feedback()
         started = time.perf_counter()
         try:
             frames = self.camera.get_frames()
-        except:
+        except Exception:
             frames = None
         finally:
-            self._record_diagnostic("camera_read", time.perf_counter() - started)
+            self._record_diagnostic("camera_read", time.perf_counter()-started)
+        with self.lock:
+            if frames is not None:
+                self.cache["frames"] = frames
+        return self.get_latest()
 
-        if arm_s is not None and len(arm_s) == 7:
-            self.last_arm_success_time = time.monotonic()
-        if hand_s is not None:
-            self.last_hand_success_time = time.monotonic()
-        return arm_s, hand_s, frames
+    def get_snapshot(self):
+        with self.lock:
+            return (self.cache["arm_state"], self.cache["hand_state"],
+                    self.cache["frames"], self.last_arm_success_time,
+                    self.last_hand_success_time)
 
     def _record_diagnostic(self, name, elapsed_s):
         elapsed_ms = elapsed_s * 1000.0
@@ -256,13 +273,7 @@ class AsyncHardwareInterface:
     def _worker(self):
         while self.running:
             try:
-                arm_s, hand_s, frames = self._update_once()
-
-                with self.lock:
-                    self.cache["arm_state"] = arm_s
-                    self.cache["hand_state"] = hand_s
-                    if frames is not None:
-                        self.cache["frames"] = frames
+                self._update_once()
 
                 time.sleep(0.01)
 
@@ -297,9 +308,15 @@ class TeleopServer:
         kinect_pointcloud_points=8192,
         arm_backend="rm75", arm_ip=ROBOT_IP, arm_port=ROBOT_PORT, arm_side="A",
         marvin_sdk_root=None, marvin_config=None, hand_side="right",
+        preview_targets=False,
         enable_motion=False, tool_xyz_m=(0,0,0), tool_rpy_deg=(0,0,0),
         tracking_to_base_rpy_deg=(0,0,0),
     ):
+        if preview_targets and enable_motion:
+            raise ValueError("Preview and motion are mutually exclusive")
+        self.preview_targets = bool(preview_targets)
+        self.last_preview = None
+        self._preview_print_time = 0.0
         self.running = True
         self.arm_backend = arm_backend
         self.motion_enabled = bool(enable_motion)
@@ -867,17 +884,19 @@ class TeleopServer:
         return None
 
     def _sense_and_update(self, timestamp):
-        arm_state, hand_comp, cam_frames = self.hw_interface.get_latest()
+        arm_state, hand_comp, cam_frames, arm_stamp, hand_stamp = self.hw_interface.get_snapshot()
         cam_frames = cam_frames or {}
         control_monotonic_ns = time.monotonic_ns()
 
         # Detect missing feedback even when previous numeric values remain cached.
         now = time.monotonic()
-        arm_stamp = self.hw_interface.last_arm_success_time
-        hand_stamp = self.hw_interface.last_hand_success_time
-        if self.teleop_enabled and (arm_stamp is None or hand_stamp is None
-            or now-arm_stamp > 0.25 or now-hand_stamp > 0.25):
-            self._stop_teleop("Hardware feedback stale")
+        arm_age = float("inf") if arm_stamp is None else now-arm_stamp
+        hand_age = float("inf") if hand_stamp is None else now-hand_stamp
+        if self.teleop_enabled and (arm_state is None or hand_comp is None
+                                    or arm_age > 0.25 or hand_age > 0.25):
+            self._stop_teleop(f"Hardware feedback stale: arm_age={arm_age:.3f}s "
+                             f"hand_age={hand_age:.3f}s arm_ok={arm_state is not None} "
+                             f"hand_ok={hand_comp is not None}")
         # 1. Arm State
         if arm_state:
             self.arm_curr_q_real_rad = np.deg2rad(np.array(arm_state))
@@ -931,6 +950,9 @@ class TeleopServer:
         err_deg = 0.0
         fps = 0.0
 
+        if getattr(self, "preview_targets", False):
+            return self._preview_targets(obs, costs)
+
         # 1. Safety Check (Arm Lag)
         err_deg = np.rad2deg(np.max(np.abs(obs["arm_qpos"] - self.arm_target_q_rad)))
 
@@ -974,7 +996,11 @@ class TeleopServer:
                     # Execute Arm Command
                     t0 = time.perf_counter()
                     try:
-                        self.arm.move_j_stream(np.rad2deg(next_q_rad))
+                        command_deg = np.rad2deg(next_q_rad)
+                        if hasattr(self.arm, "limit_joint_target"):
+                            command_deg = self.arm.limit_joint_target(command_deg)
+                            next_q_rad = np.deg2rad(command_deg)
+                        self.arm.move_j_stream(command_deg)
                     except Exception as exc:
                         self._stop_teleop(f"Arm command failed: {exc}")
                         return costs
@@ -1010,6 +1036,55 @@ class TeleopServer:
                 self._stop_teleop(f"Hand command failed: {exc}")
                 self.arm_target_q_rad = obs["arm_qpos"].copy()
 
+        return costs
+
+    def _preview_targets(self, obs, costs):
+        """Compute the same mapped/limited targets without any hardware write."""
+        if not self.teleop_enabled or self.desired_ee_pose is None:
+            return costs
+        target = limit_pose_step(
+            self.last_valid_ee_pose, self.desired_ee_pose,
+            self.max_linear_speed / CONTROL_HZ,
+            np.deg2rad(self.max_angular_speed / CONTROL_HZ))
+        started = time.perf_counter()
+        # Preview has a virtual arm state: the physical arm remains stationary.
+        q = self.kinematics.solve_ik(
+            self.arm_target_q_rad, target[:3], target[3:],
+            flange_thickness=self.flange_thickness, initial_q=self.arm_target_q_rad)
+        info = dict(self.kinematics.last_solve_info)
+        success = bool(info["success"])
+        costs.update(ik_ms=(time.perf_counter()-started)*1000,
+                     ik_info=info, ik_failed=int(not success))
+        if success:
+            candidate = self.arm_target_q_rad*(1-ARM_SMOOTH_ALPHA) + q*ARM_SMOOTH_ALPHA
+            if hasattr(self.kinematics, "model_config"):
+                try:
+                    self.kinematics.model_config.validate_degrees(np.rad2deg(candidate), margin=0.5)
+                except ValueError as exc:
+                    success = False
+                    info.update(success=False, status=str(exc))
+                    costs["ik_failed"] = 1
+            if success:
+                self.arm_target_q_rad = candidate
+                pos, quat = self.kinematics.compute_fk(candidate, flange_thickness=self.flange_thickness)
+                self.last_valid_ee_pose = np.r_[pos, quat]
+        self.hand_command_q = np.clip(
+            self.hand_command_q*(1-HAND_SMOOTH_ALPHA) + self.hand_target_q*HAND_SMOOTH_ALPHA,
+            self.hand_limits_min, self.hand_limits_max)
+        delta_rot = R.from_quat(self.desired_ee_pose[3:]).as_matrix() @ self.robot_anchor_rot.T
+        self.last_preview = {
+            "requested_delta_m": (self.desired_ee_pose[:3]-self.robot_anchor_pos).tolist(),
+            "requested_rotvec_deg": np.rad2deg(R.from_matrix(delta_rot).as_rotvec()).tolist(),
+            "limited_target_m": target[:3].tolist(),
+            "arm_candidate_deg": np.rad2deg(self.arm_target_q_rad).tolist() if success else None,
+            "hand_candidate_rad": self.hand_command_q.tolist(),
+            "ik": info, "motion_sent": False,
+        }
+        if time.monotonic()-self._preview_print_time >= 0.5:
+            print("[PREVIEW NO MOTION] " + json.dumps(self.last_preview), flush=True)
+            self._preview_print_time = time.monotonic()
+        if not success:
+            self._stop_teleop("Preview IK rejected target; re-anchor with T")
         return costs
 
     def _queue_record_data(self, timestamp, obs):
@@ -1212,6 +1287,9 @@ class TeleopServer:
                 print("\n[Server] Teleop OFF")
 
             elif action == "start_recording":
+                if getattr(self, "preview_targets", False):
+                    print("[Preview] Recording disabled: virtual targets are not demonstrations")
+                    return
                 task_name = msg.get("task_name", "default")
                 self.collector.start_recording(task_name, msg.get("input_device", "unknown"))
 
@@ -1275,7 +1353,7 @@ class TeleopServer:
         self.last_command_time = None
         self.human_anchor_pos = None
         self.human_anchor_rot = None
-        if hasattr(getattr(self, "arm", None), "stop"):
+        if not getattr(self, "preview_targets", False) and hasattr(getattr(self, "arm", None), "stop"):
             self.arm.stop()
         print(f"[Stop] {reason}; press T again after resolving the cause")
 
@@ -1286,7 +1364,7 @@ class TeleopServer:
         2. Compute current TCP pose (Anchor).
         3. Set safety timers.
         """
-        if not getattr(self, "motion_enabled", False):
+        if not getattr(self, "motion_enabled", False) and not getattr(self, "preview_targets", False):
             print("[Read-only] Start the server with --enable-motion to permit movement")
             return
         if self.teleop_enabled:
@@ -1327,10 +1405,30 @@ class TeleopServer:
             self.hand_target_q = h_curr.copy()
             self.hand_command_q = h_curr.copy()
 
-        if hasattr(self.arm, "enable"):
+        if getattr(self, "preview_targets", False):
+            print("[Preview] Virtual targets only; no motors enabled")
+        elif hasattr(self.arm, "enable"):
             try:
                 self.hand.enable()
                 self.arm.enable()
+                # Native enable holds device locks; the async cache can predate
+                # that transition. Require real fresh reads, never fake the age.
+                arm_q, hand_state, _, arm_stamp, hand_stamp = self.hw_interface.refresh_joint_feedback()
+                now = time.monotonic()
+                if (arm_q is None or hand_state is None or arm_stamp is None or hand_stamp is None
+                    or now-arm_stamp > 0.25 or now-hand_stamp > 0.25):
+                    raise RuntimeError("No fresh arm/hand feedback after enable")
+                real_q = np.deg2rad(np.asarray(arm_q, dtype=float))
+                anchor_pos, anchor_quat = self.kinematics.compute_fk(real_q, flange_thickness=self.flange_thickness)
+                self.arm_curr_q_real_rad = real_q.copy()
+                self.arm_target_q_rad = real_q.copy()
+                self.robot_anchor_pos = anchor_pos
+                self.robot_anchor_rot = R.from_quat(anchor_quat).as_matrix()
+                self.desired_ee_pose = np.r_[anchor_pos, anchor_quat]
+                self.last_valid_ee_pose = self.desired_ee_pose.copy()
+                self.hand_curr_q = np.asarray(hand_state["joints"], dtype=float).copy()
+                self.hand_target_q = self.hand_curr_q.copy()
+                self.hand_command_q = self.hand_curr_q.copy()
             except Exception as exc:
                 self._stop_teleop(f"Enable failed: {exc}")
                 self.hand.close()
@@ -1434,7 +1532,9 @@ def main():
     parser.add_argument("--marvin-sdk-root", type=Path, default=VENDOR_ROOT)
     parser.add_argument("--marvin-config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--hand-side", choices=("left", "right"), default="right")
-    parser.add_argument("--enable-motion", action="store_true", help="Allow arm/hand motion; default is read-only")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--preview-targets", action="store_true", help="Compute virtual targets only; never enable or command hardware")
+    mode.add_argument("--enable-motion", action="store_true", help="Allow arm/hand motion; default is read-only")
     parser.add_argument("--tool-xyz-m", type=float, nargs=3, default=(0,0,0))
     parser.add_argument("--tool-rpy-deg", type=float, nargs=3, default=(0,0,0))
     parser.add_argument("--tracking-to-base-rpy-deg", type=float, nargs=3, default=(0,0,0))
@@ -1550,6 +1650,7 @@ def main():
         arm_backend=args.arm_backend, arm_ip=args.arm_ip, arm_port=args.arm_port,
         arm_side=args.arm_side, marvin_sdk_root=args.marvin_sdk_root,
         marvin_config=args.marvin_config, hand_side=args.hand_side,
+        preview_targets=args.preview_targets,
         enable_motion=args.enable_motion, tool_xyz_m=args.tool_xyz_m,
         tool_rpy_deg=args.tool_rpy_deg, tracking_to_base_rpy_deg=args.tracking_to_base_rpy_deg,
         kinect_addr=args.kinect_addr,

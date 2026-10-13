@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Read-only preflight check for the first-generation right Wuji Hand."""
+"""Read-only preflight check for the first-generation Wuji Hand."""
 
 import argparse
 from pathlib import Path
 import sys
+import time
 
 import numpy as np
 
@@ -26,8 +27,7 @@ except ImportError as exc:
 try:
     from utils.wuji_hand_spec import (
         HAND_DOF,
-        HOME_Q,
-        JOINT_LIMITS,
+        hand_spec,
         JOINT_NAMES,
     )
 except ImportError as exc:
@@ -42,12 +42,18 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Read Wuji Hand identity, feedback and limits without enabling motors"
     )
+    parser.add_argument("--side", choices=("left", "right"), default="right")
     parser.add_argument(
         "--device",
         default=None,
-        help="USB serial number; omitted selects the connected right hand by side",
+        help="USB serial number; omitted selects the connected hand matching --side",
     )
-    return parser.parse_args()
+    parser.add_argument('--samples', type=int, default=1,
+                        help='Number of read-only feedback samples (1..200)')
+    args = parser.parse_args()
+    if not 1 <= args.samples <= 200:
+        parser.error('--samples must be 1..200')
+    return args
 
 
 def sdk_vector(values, label):
@@ -62,6 +68,7 @@ def sdk_vector(values, label):
 
 def main():
     args = parse_args()
+    _, _, model_limits = hand_spec(args.side)
     version = getattr(wujihandpy, "__version__", "unknown")
     print(f"[SDK] wujihandpy {version}: {wujihandpy.__file__}")
     print("[SAFE] This check never enables the motors or sends target positions.")
@@ -71,12 +78,12 @@ def main():
         if args.device:
             hand = wujihandpy.Hand(serial_number=args.device)
         else:
-            hand = wujihandpy.Hand(side="right")
+            hand = wujihandpy.Hand(side=args.side)
 
         handedness = int(hand.read_handedness())
-        if handedness != 0:
+        if handedness != (0 if args.side == "right" else 1):
             raise RuntimeError(
-                f"device handedness={handedness}; this pipeline requires right=0"
+                f"device handedness={handedness}; expected {args.side}"
             )
 
         actual = sdk_vector(hand.read_joint_actual_position(), "actual position")
@@ -91,14 +98,13 @@ def main():
         if np.any(actual < lower) or np.any(actual > upper):
             raise RuntimeError("actual joint feedback is outside hardware limits")
 
-        safe_lower = np.maximum(JOINT_LIMITS[:, 0], lower) + HAND_LIMIT_MARGIN
-        safe_upper = np.minimum(JOINT_LIMITS[:, 1], upper) - HAND_LIMIT_MARGIN
+        safe_lower = np.maximum(model_limits[:, 0], lower) + HAND_LIMIT_MARGIN
+        safe_upper = np.minimum(model_limits[:, 1], upper) - HAND_LIMIT_MARGIN
         if np.any(safe_lower >= safe_upper):
             raise RuntimeError("URDF/hardware limit intersection is empty")
-        if np.any(HOME_Q < safe_lower) or np.any(HOME_Q > safe_upper):
-            raise RuntimeError("configured HOME pose is outside the safe limit intersection")
 
-        print(f"[DEVICE] handedness=right, voltage={voltage:.2f} V, firmware=0x{firmware:08x}")
+        print(f"[DEVICE] handedness={args.side}, voltage={voltage:.2f} V, firmware=0x{firmware:08x}")
+        print(f"[IDENTITY] requested_usb_serial={args.device or 'auto-by-side'} product_sn={hand.get_product_sn()}")
         print(f"[JOINTS] {HAND_DOF} feedback values and calibrated limits are valid")
         if np.any(errors != 0):
             bad = [
@@ -109,6 +115,24 @@ def main():
 
         for name, q, lo, hi in zip(JOINT_NAMES, actual, safe_lower, safe_upper):
             print(f"  {name:<15} q={q:+.4f}  safe=[{lo:+.4f}, {hi:+.4f}] rad")
+        if args.samples > 1:
+            samples = [actual.copy()]
+            print(f"[STABILITY] Reading {args.samples} samples without enable or realtime controller", flush=True)
+            for _ in range(args.samples-1):
+                time.sleep(0.1)
+                sample = sdk_vector(hand.read_joint_actual_position(), "stability feedback")
+                if np.any(sample < lower) or np.any(sample > upper):
+                    raise RuntimeError("stability feedback outside hardware limits")
+                errors = np.asarray(hand.read_joint_error_code()).reshape(HAND_DOF)
+                if np.any(errors != 0):
+                    raise RuntimeError(f"joint errors during sampling: {errors.tolist()}")
+                samples.append(sample)
+            values = np.asarray(samples)
+            spans = np.ptp(values, axis=0)
+            for i in np.argsort(spans)[::-1][:5]:
+                print(f"[STABILITY] {JOINT_NAMES[i]} min={values[:,i].min():+.6f} "
+                      f"max={values[:,i].max():+.6f} span={spans[i]:.6f} rad", flush=True)
+            print("[STABILITY] Static range only; this does not validate enable behavior.")
         print("[PASS] Wuji SDK read-only preflight completed")
         return 0
     except Exception as exc:

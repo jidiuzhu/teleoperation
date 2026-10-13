@@ -109,6 +109,21 @@ class MarvinController:
                 self._trip(exc)
                 raise
 
+    def limit_joint_target(self, joint_angles):
+        """Shape a teleop target to the existing speed bound; never send here."""
+        with self.lock:
+            if not self.enabled or self.fault or self.last_command_time is None:
+                raise RuntimeError('MARVIN is not enabled')
+            target = self.model.validate_degrees(joint_angles, margin=0.5)
+            dt = max(0.0, min(time.monotonic()-self.last_command_time, 0.1))
+            delta = target-self.last_command
+            largest = float(np.max(np.abs(delta)))
+            allowed = self.max_speed*dt
+            if largest > allowed:
+                target = self.last_command + delta*(allowed/largest)
+            # Interpolation must also satisfy the coupled wrist boundaries.
+            return self.model.validate_degrees(target, margin=0.5).copy()
+
     def move_j_stream(self, joint_angles):
         with self.lock:
             if not self.enabled or self.fault:
@@ -215,21 +230,32 @@ class _NativeSDK:
             raise ConnectionError('MARVIN feedback read failed')
         return self.to_dict(self.state)
 
+    def _begin_transaction(self, timeout_s=0.1):
+        # OnSetSend only marks the native buffer pending (m_SendTag=100).
+        # DoSend clears that flag asynchronously after sending. A false clear
+        # therefore means busy, not a failed motion command. Retry only clear;
+        # never stage fields until it succeeds and never resubmit a command.
+        deadline = time.monotonic() + timeout_s
+        while True:
+            if self._clear():
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('MARVIN transmit buffer remained busy for 100 ms')
+            time.sleep(min(0.001, remaining))
+
     def configure(self, vel, acc, q):
         # The 100341 API stages settings in shared native state.
-        if not self._clear():
-            raise RuntimeError("Cannot begin MARVIN command transaction")
+        self._begin_transaction()
         ok = self._limits(vel,acc) and self._target((C.c_double*7)(*q))
         if not ok or not self._send():
             raise RuntimeError('Failed to initialize MARVIN target/limits')
-        if not self._clear():
-            raise RuntimeError("Cannot begin MARVIN mode transaction")
+        self._begin_transaction()
         if not self._mode(1) or not self._send():
             raise RuntimeError('Failed to request position mode')
 
     def command(self, q):
-        if not self._clear():
-            return False
+        self._begin_transaction()
         return self._target((C.c_double*7)(*q)) and self._send()
 
     def stop(self): self._stop()

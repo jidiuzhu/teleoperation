@@ -91,3 +91,61 @@ python -m unittest tests.test_marvin_adaptation tests.test_network_tracker \
 ```
 
 测试涵盖原生 FK/IK、工具变换、六七关节边界、只读模式、版本不匹配、反馈及指令超时、UDP 重启/乱序/过期消息、左手设备选择及服务端控制回归。原生库不存在时，原生计算测试会跳过；先构建再运行。
+
+## 7. 目标预览（第五步默认参数的验证入口）
+
+这是计算预览，不是运动测试。关闭此前的服务端和诊断接收端；Windows 发送端继续运行。Ubuntu 服务端：
+
+```bash
+source /home/syp/.venvs/marvin-teleop/bin/activate
+cd /home/syp/teleopwuji-base-vr-glove
+python teleop/scripts/teleop_real_server_wuji.py \
+  --arm-backend marvin --arm-ip 192.168.1.190 --arm-side A \
+  --hand-side left --hand-device 385F36503533 \
+  --camera-mode none --flange-thickness 0 --preview-targets
+```
+
+客户端使用第 4 节的命令（已确认 glove SN 为 `WG1JA06260626025`，Tracker 为 `LHR-C87FB5D3`；Windows IP 以当前来源为准）。目前可以不传 `--glove-user-id`，明确以 SDK 默认模型做连通与方向检查，不能声称已加载个人标定。
+
+客户端按 T 后，服务端打印 `[PREVIEW NO MOTION]`：
+
+- `requested_delta_m`：基座系中的目标位移。
+- `requested_rotvec_deg`：相对启动朝向的旋转向量，单位度；不是欧拉角。
+- `limited_target_m`：按服务端速度限制得到的本周期目标位置。
+- `arm_candidate_deg`：虚拟机械臂的候选七关节目标；逆解失败时为 null。
+- `hand_candidate_rad`：候选手部关节目标。
+- `ik.success` 与 `ik.status`：逆解接受或拒绝原因。
+- `motion_sent=false`：没有向硬件下发目标。
+
+实体机械臂不跟随，虚拟状态用于连续逆解；不能把预览视为伺服跟踪测试。先各方向小幅移动，再转动手腕，核对目标方向。逆解失败或输入断流会退出预览，恢复后重新按 T 建立锚点。预览与 `--enable-motion` 互斥，禁止录制虚拟目标为示教数据。输入和硬件反馈时效检查仍然生效。
+
+## 8. 单设备、单关节测试（现场人员执行）
+
+先退出所有遥操作 client/server 和厂家控制软件。两种入口互相独立：arm 不连接机械手，hand 不连接机械臂；也不读取手套/Tracker。只改变一个关节的目标，其余关节保持起始目标，但整个被测设备的伺服都会使能。无完整碰撞检测，小角度也会带动末端和线缆，执行前现场确认空间和急停。
+
+**默认只读计划，不产生运动：**
+
+```bash
+# 机械臂：第 1 关节偏移 +1 度，再返回起点的计划
+python teleop/scripts/test_single_device.py arm \
+  --arm-ip 192.168.1.190 --side A --joint 1 --delta 1
+
+# 左手：第 5 个关节（食指 J1）偏移 +0.03 rad，再返回起点的计划
+python teleop/scripts/test_single_device.py hand \
+  --hand-device 385F36503533 --side left --joint 5 --delta 0.03
+```
+
+以上关节与正方向仅为示例，必须结合现场确认；不默认选择接近限位的 J7。臂最大偏移 2°，手最大偏移 0.05 rad；正负号决定测试方向。全程默认 10 秒，允许 8～20 秒，先缓慢到偏移点，再回起点。起点及插值路径均检查限位，臂额外检查 J6/J7 干涉边界。
+
+**只有现场准备完成后，才在同一条只读计划命令后增加：**
+
+```text
+机械臂：--enable-motion --confirmation MOVE_ARM
+灵巧手：--enable-motion --confirmation MOVE_HAND
+```
+
+两项必须同时提供；先显示计划，再倒计时 5 秒。Ctrl+C 可取消。机械臂速度和加速度比例均为 1%，目标变化速率另外限制为 2°/s。机械手电流限值设为 0.3 A 并读回校验；这会改变设备限流设置，即使未使能也要注意后续程序自己的限流配置。
+
+测试成功必须检测到关节实际偏移及回到起点。反馈错误、过期、轨迹跟踪误差、意外跳变或主循环卡顿会停止，不自动执行“回起点”补救动作。完成/异常退出会释放连接；机械臂停止调用厂家软件急停并请求 idle，手部关闭实时控制并失能。软件线程不能保证在原生 SDK/USB 调用永久阻塞时及时停止，现场硬件急停仍然必要。
+
+本次只完成模拟与离线验证，没有执行这些实机运动命令。单设备测试不验证 Tracker 丢失后的真实运动停止，也不代替后续受限臂手联动验收。

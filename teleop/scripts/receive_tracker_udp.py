@@ -13,8 +13,10 @@ import time
 def validate(packet, serial):
     if not isinstance(packet, dict):
         raise ValueError('Expected object')
-    if packet.get('version') not in (1, 2) or packet.get('serial') != serial:
-        raise ValueError('Wrong version or serial')
+    if type(packet.get('version')) is not int or packet['version'] not in (1, 2):
+        raise ValueError(f"Unsupported protocol version {packet.get('version')!r}; expected 1 or 2")
+    if packet.get('serial') != serial:
+        raise ValueError(f"Tracker serial mismatch: expected {serial!r}, received {packet.get('serial')!r}")
     if packet.get('frame') != 'steamvr_standing':
         raise ValueError('Wrong frame')
     if not isinstance(packet.get('session'), str) or not packet['session']:
@@ -48,6 +50,23 @@ def validate(packet, serial):
     return packet
 
 
+class RejectionReporter:
+    """Rate-limit rejected-packet output without accepting invalid packets."""
+    def __init__(self, interval=5.0):
+        self.interval = interval
+        self.last_print = None
+        self.suppressed = 0
+
+    def report(self, error, now):
+        if self.last_print is not None and now-self.last_print < self.interval:
+            self.suppressed += 1
+            return
+        suffix = f" ({self.suppressed} rejection messages suppressed)" if self.suppressed else ""
+        print(f"Rejected packet: {error}{suffix}", flush=True)
+        self.last_print = now
+        self.suppressed = 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bind', default='0.0.0.0')
@@ -58,6 +77,7 @@ def main():
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error('--timeout must be positive and finite')
+    reporter = RejectionReporter()
     last_rx = None
     last_print = 0.0
     status = None
@@ -86,17 +106,24 @@ def main():
                 last_rx = time.monotonic()
                 current = 'TRACKING' if p['valid'] else 'INVALID'
                 if current != status or last_rx - last_print >= 0.5:
-                    detail = ''
+                    labels = {1: 'Uninitialized', 100: 'Calibrating_InProgress',
+                              101: 'Calibrating_OutOfRange', 200: 'Running_OK',
+                              201: 'Running_OutOfRange', 300: 'Fallback_RotationOnly'}
+                    result = p.get('tracking_result')
+                    label = labels.get(result, 'Unknown') if type(result) is int else 'Unavailable'
+                    detail = f" connected={p['connected']} tracking_result={result}({label})"
+                    if not p['valid'] and result == 200:
+                        detail += ' pose invalid or matrix non-finite at sender'
                     if p['valid']:
                         m = p['matrix34']
-                        detail = ' xyz_m=' + str([round(m[r][3], 4) for r in range(3)])
+                        detail += ' xyz_m=' + str([round(m[r][3], 4) for r in range(3)])
                     print(f"{current} serial={p['serial']} seq={last_seq} gap={gap}" + detail, flush=True)
                     last_print = last_rx
                 status = current
             except socket.timeout:
                 pass
             except (ValueError, TypeError, UnicodeError) as exc:
-                print(f'Rejected packet: {exc}', flush=True)
+                reporter.report(exc, time.monotonic())
             if last_rx is None or time.monotonic() - last_rx >= args.timeout:
                 if status != 'STALE':
                     print('STALE: no recent packets; pose unavailable', flush=True)

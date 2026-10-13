@@ -27,8 +27,13 @@ def main():
     last_print = 0.0
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Winsock requires a bound socket before the first recvfrom().
+            # Port 0 lets the OS select a free reply port; Ubuntu uses the
+            # source endpoint of each pose packet to return its challenge.
+            sock.bind(('0.0.0.0', 0))
             sock.setblocking(False)
             echo = None
+            last_reset_warning = None
             print(f'Sending {args.serial} to {args.host}:{args.port}; Ctrl+C exits')
             while True:
                 start = time.monotonic()
@@ -37,6 +42,16 @@ def main():
                         reply, peer = sock.recvfrom(2048)
                     except BlockingIOError:
                         break
+                    except ConnectionResetError as exc:
+                        # Winsock reports ICMP port-unreachable from a previous
+                        # UDP send here. A receiver may simply not be up yet.
+                        if getattr(exc, 'winerror', None) != 10054:
+                            raise
+                        echo = None
+                        if last_reset_warning is None or start-last_reset_warning >= 5:
+                            print('[UDP] Receiver port unavailable; start Ubuntu receiver on UDP 6210 (or --port). Retrying...', flush=True)
+                            last_reset_warning = start
+                        continue
                     if peer != (args.host, args.port):
                         continue
                     try:

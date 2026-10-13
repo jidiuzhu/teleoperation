@@ -356,6 +356,17 @@ class WujihandPyBackend:
             self._record_diagnostic("read_lock_wait", lock_wait_s)
             self._record_diagnostic("read_total", time.perf_counter() - started)
 
+    def read_checked_positions(self):
+        """Synchronous device queries for commissioning, not cached PDO feedback."""
+        with self._lock:
+            self._raise_if_unavailable()
+            errors = np.asarray(self._hand.read_joint_error_code()).reshape(HAND_DOF)
+            if np.any(errors != 0):
+                raise RuntimeError(f"Wuji joint error codes: {errors.tolist()}")
+            positions = _flatten_sdk_array(
+                self._hand.read_joint_actual_position(), label="Wuji live test feedback")
+            return positions.copy()
+
     def get_joint_limits(self):
         return self._joint_limits.copy()
 

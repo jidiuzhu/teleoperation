@@ -226,6 +226,7 @@ def keyboard_listener(cmd_queue: Queue):
                 cmd_queue.put("toggle_record")
             elif ch == 'q':
                 cmd_queue.put("quit")
+                return  # Do not hold stdin while the interpreter shuts down.
         except EOFError:
             break
 
